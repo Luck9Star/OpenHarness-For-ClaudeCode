@@ -9,7 +9,6 @@ Usage:
 """
 
 import sys
-import os
 import gzip
 import shutil
 import json
@@ -94,7 +93,6 @@ def cleanup_progress(base_path):
     runs_to_keep = runs[-PROGRESS_KEEP_RUNS:]
     runs_to_prune = runs[:-PROGRESS_KEEP_RUNS]
     first_kept = runs_to_keep[0]
-    last_kept = runs_to_keep[-1]
 
     # Build a summary of pruned entries
     pruned_runs = []
