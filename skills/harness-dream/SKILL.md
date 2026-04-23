@@ -12,7 +12,7 @@ This skill performs offline maintenance on the OpenHarness workspace. It should 
 Before proceeding, verify that the workspace state is NOT `running`:
 
 ```bash
-python3 scripts/state-manager.py read
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" read
 ```
 
 If `status` is `running`, stop immediately with the message:

@@ -13,7 +13,7 @@ This plugin brings OpenHarness's Harness Engineering principles to Claude Code. 
 2. **Follow the playbook.** Execute steps in order. Do not skip ahead or improvise unless a step explicitly allows it.
 3. **Read cache-aware.** Static files first (mission.md, eval-criteria.md, playbook.md), then dynamic state (harness-state.local.md).
 4. **State file is truth.** The `.claude/harness-state.local.md` file is the single source of truth for execution progress. Trust it over your memory.
-5. **Log everything significant.** Use `state-manager.py log` to append to the execution stream. Future sessions depend on these records.
+5. **Log everything significant.** Use `state-manager.py log` for raw entries and `state-manager.py report` for structured round reports (subtask, strategy, verification, state target). Future sessions depend on these records.
 6. **Respect the circuit breaker.** If `circuit_breaker: tripped`, stop immediately. Manual intervention is required.
 7. **Mission boundaries are absolute.** The Prohibited Operations in mission.md are enforced by hooks. Do not attempt to circumvent them.
 8. **Promise honesty.** Only output `<promise>LOOP_DONE</promise>` when ALL done conditions are genuinely met AND verified by eval-agent.

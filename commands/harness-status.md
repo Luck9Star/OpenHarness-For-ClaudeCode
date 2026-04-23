@@ -61,8 +61,8 @@ Show the most recent entries from progress.md (if any exist).
 > Suggested actions:
 > - Read the execution log in `logs/execution_stream.log` to diagnose the root cause
 > - Fix the underlying issue manually
-> - Reset the circuit breaker with: `python3 scripts/state-manager.py reset-fail`
-> - Update the state to running: `python3 scripts/state-manager.py update status running`
+> - Reset the circuit breaker with: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" reset-fail`
+> - Update the state to running: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" update status running`
 
 **If mission is complete** (status: `mission_complete`), display:
 
