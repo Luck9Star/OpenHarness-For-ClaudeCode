@@ -34,20 +34,27 @@ Parse the command arguments (if any were provided):
 If `--mode` is not specified, default to `single`.
 `--worktree` only has effect in `dual` mode.
 
-Note: The `--verify` instruction is read from the state file (set during `/harness-start`). Do not specify it here.
+Note: The `--verify` instruction and `--skills` are preserved from the existing state file (set by `/harness-start`) and forwarded to the loop setup script in Step 3.
 
 ## Step 3: Initialize Loop State
 
 **If `--resume` was specified, skip this step entirely and proceed to Step 5.** The existing state file will be used as-is.
 
-**Otherwise**, run the setup script to create or reset the loop state file:
+**Otherwise**, run the setup script to create or reset the loop state file. **Before calling the script**, read the existing state file to preserve `verify_instruction` and `skills` (set by `/harness-start`):
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup-harness-loop.sh" <task-name> --mode <mode> [--worktree] --max-iterations <N>
+# Read existing verify_instruction and skills before reinit
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" read
+```
+
+Extract the `verify_instruction` and `skills` values from the JSON output, then forward them:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup-harness-loop.sh" <task-name> --mode <mode> [--worktree] --max-iterations <N> --verify "<verify_instruction>" --skills "<skills>"
 ```
 
 Use the task name from `mission.md` (Section 1: Mission Name).
-The verify instruction is already in the state file from `/harness-start`.
+If verify_instruction or skills are empty/absent in the existing state, omit the corresponding flag.
 
 Verify the output confirms successful initialization.
 

@@ -120,6 +120,7 @@ def cmd_init(args):
         "skills": skills,
         "last_execution_time": now,
         "task_name": task_name,
+        "knowledge_index": [],
     }
 
     write_state(state, state_path)
