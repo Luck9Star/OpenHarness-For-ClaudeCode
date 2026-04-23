@@ -1,6 +1,6 @@
 ---
 description: "Start autonomous development loop for an OpenHarness task"
-argument-hint: "[--mode single|dual] [--worktree] [--max-iterations N]"
+argument-hint: "[--mode single|dual] [--worktree] [--max-iterations N] [--resume]"
 allowed-tools: ["Bash", "Agent", "Read", "Write", "Edit"]
 ---
 
@@ -28,6 +28,7 @@ Parse the command arguments (if any were provided):
 - `--mode dual`: Agent plans only, then spawns `harness-dev-agent` for coding. Protects main agent context from explosion.
 - `--worktree`: In dual mode, run dev-agent in an isolated git worktree (code changes in separate branch, merge on success). Without this flag, dev-agent works in the same directory — still protects main agent context but without git isolation.
 - `--max-iterations N`: Stop the loop after N iterations (0 = infinite)
+- `--resume`: Resume from a paused state (after human-review checkpoint)
 
 If `--mode` is not specified, default to `single`.
 `--worktree` only has effect in `dual` mode (ignored in single mode).
@@ -39,7 +40,7 @@ Note: The `--verify` instruction is read from the state file (set during `/harne
 Run the setup script to create or reset the loop state file:
 
 ```bash
-bash .claude-plugin-path/scripts/setup-harness-loop.sh <task-name> --mode <mode> [--worktree] --max-iterations <N>
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup-harness-loop.sh" <task-name> --mode <mode> [--worktree] --max-iterations <N>
 ```
 
 Use the task name from `mission.md` (Section 1: Mission Name).
@@ -69,7 +70,7 @@ Read these files in cache-optimal order:
 Update the state file to `status: running`:
 
 ```bash
-python3 scripts/state-manager.py update status running
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" update status running
 ```
 
 Then begin executing the playbook from the current step.

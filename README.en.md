@@ -87,6 +87,7 @@ The AI dynamically generates the playbook with typed steps:
 | `review` | Spawn review-agent for read-only code review |
 | `fix` | Apply fixes based on review feedback |
 | `verify` | Spawn eval-agent for independent validation |
+| `human-review` | Pause loop for human approval (optional, not inserted by default) |
 
 **Example: User requests "strict review, 2 rounds"**
 
@@ -117,6 +118,7 @@ Agent starts working autonomously, looping until the task is complete.
 | `--mode single\|dual` | No | Execution mode, default `single` | `--mode dual` |
 | `--worktree` | No | Enable git worktree isolation in dual mode (default: work in-place) | `--worktree` |
 | `--max-iterations N` | No | Max loop iterations, 0 = infinite (default) | `--max-iterations 10` |
+| `--resume` | No | Resume from human-review pause point | `--resume` |
 
 > Note: `--verify` is specified only in `/harness-start`. `/harness-dev` reads it from the state file.
 
@@ -159,6 +161,67 @@ Modify an existing task's configuration at any time:
 ```
 
 Without `--verify`, the eval-agent still performs structural validation based on `eval-criteria.md` (checking file existence, content plausibility), but lacks targeted semantic verification.
+
+## Task Prompt Writing Guide
+
+The scope of `--verify` determines the depth of eval-agent validation. **Verify only checks dimensions you explicitly list** — it won't automatically cover implicit expectations in the task description.
+
+### Anti-Pattern: Incomplete Verify Coverage
+
+```bash
+# Task has 4 dimensions (review, alignment, testing, performance),
+# but verify only covers testing
+/harness-start "Review Rust implementation, check CLI alignment, add E2E tests, optimize performance" \
+  --verify "Unit tests pass, E2E tests pass"
+# Result: eval-agent only runs tests, "review" becomes a clippy cleanup, passes in one round
+```
+
+### Recommended Approaches
+
+**Scheme A: Split Tasks with Single-Dimension Verification (Recommended)**
+
+```bash
+# Task 1: Pure review (deliverable is a report file)
+/harness-start "Deep code review of Rust implementation (6 crates).
+Deliverable: Review report covering architecture, cross-crate dependencies,
+error handling consistency, public API Rust idioms, concurrency safety.
+Each issue tagged critical/major/minor." \
+  --verify "Review report file exists, each crate has >=3 specific findings,
+all critical findings have fix suggestions"
+
+# Task 2: CLI alignment
+/harness-start "Check Rust CLI vs Python CLI alignment, fix all differences" \
+  --verify "Alignment report exists and all E2E CLI tests pass"
+
+# Task 3: Performance optimization
+/harness-start "Check and optimize Rust performance bottlenecks" \
+  --verify "All benchmarks within thresholds, no performance regression"
+```
+
+**Scheme B: Single Task with Multi-Dimensional Verify**
+
+```bash
+/harness-start "Complete these 4 items:
+1. Deep review of Rust 6 crates (>=3 findings per crate, tagged by severity);
+2. Produce CLI alignment report, fix differences;
+3. Add E2E tests covering all subcommands;
+4. All benchmarks within thresholds." \
+  --mode dual \
+  --verify "
+  1. Review report exists with >=3 specific findings per crate (not clippy-level);
+  2. CLI alignment report exists and all differences fixed;
+  3. cargo test all pass (including E2E);
+  4. All benchmarks within thresholds"
+```
+
+### Writing Principles
+
+| Principle | Description |
+|---|---|
+| **Deliverables are files, not behaviors** | eval-agent can verify report file contents, but cannot verify "was the review thorough" |
+| **Verify covers all dimensions** | Task has N objectives, verify should have N checks |
+| **Quantify acceptance criteria** | ">=3 findings per crate" is verifiable; "thorough review" is not |
+| **Split tasks over mega-tasks** | Single-objective tasks are easier to write precise verify for |
 
 ## `--skills` Skill Injection
 

@@ -82,6 +82,7 @@ AI 根据回答**动态生成 playbook 步骤**，每个步骤带有类型标记
 | `review` | 派生 review-agent 进行只读代码审查 |
 | `fix` | 根据审查意见修复问题 |
 | `verify` | 派生 eval-agent 进行独立验证 |
+| `human-review` | 暂停循环等待人工确认（可选，默认不插入） |
 
 **示例：用户要求"严格审查，2 轮"**
 
@@ -112,6 +113,7 @@ Agent 开始自主工作，循环执行直到任务完成。
 | `--mode single\|dual` | 否 | 执行模式，默认 `single` | `--mode dual` |
 | `--worktree` | 否 | dual 模式下启用 git worktree 隔离（默认在当前目录工作） | `--worktree` |
 | `--max-iterations N` | 否 | 最大循环次数，0 表示无限（默认） | `--max-iterations 10` |
+| `--resume` | 否 | 从 human-review 暂停点恢复执行 | `--resume` |
 
 > 注意：`--verify` 只在 `/harness-start` 中指定，`/harness-dev` 从状态文件读取，无需重复。
 
@@ -169,6 +171,65 @@ Agent 开始自主工作，循环执行直到任务完成。
 ```
 
 如果不指定 `--verify`，eval-agent 仍会根据 `eval-criteria.md` 做结构性验证（检查文件是否存在、内容是否合理等），但缺少针对性的语义验证。
+
+## 任务编写指南
+
+`--verify` 的覆盖范围决定了 eval-agent 的验证深度。**verify 只检查你明确列出的维度**——不会自动覆盖任务描述中的隐含期望。
+
+### 反模式：verify 覆盖不全
+
+```bash
+# 任务有 4 个维度（评审、对齐、测试、性能），但 verify 只覆盖了测试
+/harness-start "评审 Rust 实现，检查 CLI 对齐，补齐 E2E 测试，优化性能" \
+  --verify "单元测试成功，E2E 测试通过"
+# 结果：eval-agent 只跑测试，"评审"变成 clippy 清理，一轮就过
+```
+
+### 推荐写法
+
+**方案 A：拆任务，每个任务目标单一（推荐）**
+
+```bash
+# 任务 1：纯评审（交付物是报告文件）
+/harness-start "对 Rust 实现（6 crate）进行深度代码评审。
+交付物：评审报告，覆盖架构设计、跨 crate 依赖、错误处理策略、
+public API 惯用法、并发安全性。每个问题标注 critical/major/minor。" \
+  --verify "评审报告文件存在，每个 crate 有 >=3 条具体发现，
+所有 critical 发现都有修复建议"
+
+# 任务 2：CLI 对齐
+/harness-start "检查 Rust CLI 与 Python CLI 的对齐，修复所有差异" \
+  --verify "对齐报告存在且所有 E2E CLI 测试通过"
+
+# 任务 3：性能优化
+/harness-start "检查并优化 Rust 性能瓶颈" \
+  --verify "benchmark 全部在阈值内，无性能回归"
+```
+
+**方案 B：单任务但 verify 覆盖全维度**
+
+```bash
+/harness-start "完成以下 4 项工作：
+1. 深度评审 Rust 6 crate（每 crate >=3 条发现，标注严重等级）；
+2. 产出 CLI 对齐报告，修复差异；
+3. 补齐 E2E 测试，覆盖所有子命令；
+4. benchmark 全部在阈值内。" \
+  --mode dual \
+  --verify "
+  1. 评审报告存在且每 crate 有 >=3 条具体发现（非 clippy 级别）；
+  2. CLI 对齐报告存在且所有差异已修复；
+  3. cargo test 全部通过（含 E2E）；
+  4. benchmark 全部在阈值内"
+```
+
+### 编写原则
+
+| 原则 | 说明 |
+|---|---|
+| **交付物是文件，不是行为** | eval-agent 可以读文件验证报告内容，但无法验证"评审是否深入" |
+| **verify 覆盖所有维度** | 任务有 N 个目标，verify 就要有 N 条检查 |
+| **量化验收标准** | "每 crate >=3 条发现"比"充分评审"可验证 |
+| **拆任务优于大任务** | 单一目标的任务更容易写出精确的 verify |
 
 ## `--skills` 技能注入
 

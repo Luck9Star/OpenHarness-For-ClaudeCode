@@ -78,6 +78,13 @@ Show the most recent entries from progress.md (if any exist).
 
 > Workspace is idle and ready for the next iteration. Run `/harness-dev` to start the development loop.
 
+**If status is `paused`**, display:
+
+> **PAUSED FOR HUMAN REVIEW** — The harness paused at a human-review checkpoint.
+>
+> To resume: `/harness-dev --resume`
+> To review progress: check `progress.md` and `logs/execution_stream.log`
+
 **If status is `failed`**, display:
 
 > Last iteration failed with N consecutive failure(s). The loop will retry automatically unless the circuit breaker trips (at 3 failures).

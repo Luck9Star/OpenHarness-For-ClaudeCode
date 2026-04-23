@@ -36,6 +36,7 @@ This plugin brings OpenHarness's Harness Engineering principles to Claude Code. 
 idle → running → (step ok) → completed → idle (next step)
                 → (step fail) → failed → idle (retry)
                 → (failures >= 3) → blocked (circuit breaker)
+running → (human-review) → paused → idle (resumed)
 
 Any → mission_complete (all done + verified) → loop exits
 ```

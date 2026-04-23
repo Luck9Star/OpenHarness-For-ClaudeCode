@@ -65,6 +65,12 @@ if [[ $MAX_ITERATIONS -gt 0 ]] && [[ $ITERATION -ge $MAX_ITERATIONS ]]; then
   exit 0
 fi
 
+# Paused for human review — allow exit
+if [[ "$STATUS" = "paused" ]]; then
+  echo "OpenHarness: Paused for human review. Resume with /harness-dev --resume."
+  exit 0
+fi
+
 # Mission complete — allow exit
 if [[ "$STATUS" = "mission_complete" ]]; then
   echo "OpenHarness: Mission complete. Loop exiting."

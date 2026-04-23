@@ -27,6 +27,7 @@ Based on the task description, ask 2-3 targeted quality questions. Combine them 
 1. **Code review** — "Need code review? If yes, how many rounds? (0 = no review, 1 = review once, 2+ = multiple review-fix cycles)"
 2. **TDD** — "Need TDD (write tests before implementation)? (yes/no)"
 3. **Auto-fix on failure** — "Should the system auto-fix and retry when verification fails? (yes/no)"
+4. **Human checkpoints** — "Insert pause points for human review? (yes/no, default: no for fully autonomous execution)"
 
 Guidelines for asking:
 - For simple/trivial tasks (e.g., "fix a typo", "update a config value"), you may skip this step and auto-set all answers to "no" — inform the user you are doing so.
@@ -82,6 +83,7 @@ Create a concrete step-by-step execution plan. Use the quality profile from Step
 - `review` — spawn harness-review-agent for read-only code review
 - `fix` — apply fixes based on review feedback (reads `logs/review_report.json`)
 - `verify` — spawn harness-eval-agent for validation
+- `human-review` — pause loop for human inspection and approval
 
 **Dynamic step generation rules based on quality profile**:
 
@@ -89,6 +91,14 @@ Create a concrete step-by-step execution plan. Use the quality profile from Step
 - **User wants TDD**: For each logical unit of work, order steps as: `verify` (write tests first) → `implement` (make tests pass). The verify step here writes tests; the implement step makes them pass.
 - **User wants quick (no review, no TDD)**: Just `implement` + final `verify` for each major unit.
 - **Simple task (auto-detected)**: AI simplifies to minimal steps: `implement` followed by a single `verify` at the end.
+
+**Human-review insertion rules** (only if user explicitly requests checkpoints):
+When the user indicates they want human review checkpoints (e.g., "I want to review progress at key milestones"), insert `human-review` steps:
+- **1-2 implement steps**: No human-review needed
+- **3-4 implement steps**: Insert one `human-review` after the midpoint
+- **5+ implement steps**: Insert at 33%, 66%, and before final `verify`
+
+**By default, do NOT insert human-review steps.** The harness is designed for fully autonomous execution (e.g., overnight 8-hour runs). Human-review is opt-in only.
 
 **General playbook rules**:
 - Break the task into the appropriate number of steps based on the above rules

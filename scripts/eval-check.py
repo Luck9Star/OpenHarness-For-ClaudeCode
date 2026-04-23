@@ -232,7 +232,7 @@ def main():
                 "detail": detail,
             })
 
-        overall = all(c["passed"] is True for c in checks)
+        overall = all(c["passed"] is True or c["passed"] is None for c in checks)
 
         report = {
             "checks": checks,

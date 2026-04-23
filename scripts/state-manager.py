@@ -9,6 +9,8 @@ Usage:
     state-manager.py init [opts]   Initialize a new state file
     state-manager.py update KEY VAL  Update a frontmatter field
     state-manager.py log MESSAGE   Append to execution stream (L3)
+    state-manager.py report SUBTASK STRATEGY VERIFICATION STATE_TARGET
+                                   Write structured round report (L3)
     state-manager.py step-advance  Advance current_step by 1
     state-manager.py fail          Increment consecutive_failures
     state-manager.py reset-fail    Reset consecutive_failures to 0
@@ -16,7 +18,6 @@ Usage:
 """
 
 import sys
-import os
 import re
 import json
 from datetime import datetime
@@ -266,11 +267,32 @@ def cmd_trip_breaker(args):
     print("Circuit breaker TRIPPED")
 
 
+def cmd_report(args):
+    """Write a structured round report to execution stream (L3).
+
+    Usage: state-manager.py report <subtask> <strategy> <verification> <state_target>
+    """
+    if len(args) < 4:
+        print("Usage: state-manager.py report <subtask> <strategy> <verification> <state_target>", file=sys.stderr)
+        sys.exit(1)
+    subtask, strategy, verification, state_target = args[0], args[1], args[2], args[3]
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    log_path = Path.cwd() / LOG_FILE
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(log_path, 'a') as f:
+        f.write(f"[{now}] ## Round Report\n")
+        f.write(f"[{now}] - Subtask: {subtask}\n")
+        f.write(f"[{now}] - Strategy: {strategy}\n")
+        f.write(f"[{now}] - Verification: {verification}\n")
+        f.write(f"[{now}] - State Target: {state_target}\n")
+
+
 COMMANDS = {
     "read": cmd_read,
     "init": cmd_init,
     "update": cmd_update,
     "log": cmd_log,
+    "report": cmd_report,
     "step-advance": cmd_step_advance,
     "fail": cmd_fail,
     "reset-fail": cmd_reset_fail,

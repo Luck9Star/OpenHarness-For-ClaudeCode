@@ -46,7 +46,19 @@ Only load `knowledge/*.md` files on demand if the current step references them.
 
 ### 5. Execute Current Step
 
-First, check the current playbook step's **Type** field to determine how to execute it:
+First, log a structured round report for traceability:
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" report "<subtask>" "<strategy>" "<verification>" "<state_target>"
+```
+
+Where:
+- **subtask**: What the current playbook step requires (e.g., "Implement JWT auth middleware")
+- **strategy**: How you plan to accomplish it (e.g., "Create auth.middleware.js with JWT verification")
+- **verification**: How to judge success (e.g., "All tests pass, middleware file exists")
+- **state_target**: Where results are written (e.g., "progress.md + state file")
+
+Then, check the current playbook step's **Type** field to determine how to execute it:
 
 #### type: implement (or no type field — backwards compatible)
 
@@ -128,6 +140,25 @@ After fixes are applied:
 - Log what was fixed: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Applied fixes for <N> issues from review"`
 - Run validation (see step 6) if the step has completion criteria
 
+#### type: human-review
+
+Pause the loop for human inspection and approval. This step type suspends execution until the user resumes.
+
+1. Generate a progress summary of completed steps so far:
+   - List all completed steps with their results
+   - Highlight any pending issues or failures
+   - Show current state of eval criteria
+2. Output the summary to the user
+3. Update state and pause:
+   ```
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" update status paused
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Human-review checkpoint: paused for user inspection"
+   ```
+4. Output `<promise>LOOP_PAUSE</promise>` to suspend the loop
+5. When the user resumes (via `/harness-dev --resume` or `/harness-dev`), the next loop iteration will continue from the step after this one
+
+The user may provide feedback during the pause. If they request changes, insert a `fix` step before continuing. If they approve, advance to the next step normally.
+
 #### type: verify
 
 Spawn `harness-eval-agent` for independent validation — regardless of execution mode.
@@ -190,7 +221,21 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" update status idle
 
 Review the failure reason. If `consecutive_failures` is now >= 3, the circuit breaker will trip automatically (handled by `state-manager.py fail`). Do NOT retry the same approach — diagnose the root cause first.
 
-### 9. Mission Completion Check
+### 9. Progress Check & Strategy Switching
+
+After each successful step, check the execution progress:
+
+1. Calculate: `completed_steps / total_steps`
+2. If progress >= 60%, apply **integration-mode constraints** to all subsequent `implement` steps:
+   - Do NOT add new non-essential modules or features
+   - Prioritize fixing inter-module dependencies and interaction issues
+   - Ensure existing tests continue to pass
+   - Add README updates and startup documentation
+   - Log the mode switch: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Switched to integration mode at 60% progress"`
+
+The integration-mode constraint is a behavioral guideline — it does not require state file changes. Simply apply these rules when executing subsequent `implement` steps after the 60% threshold.
+
+### 10. Mission Completion Check
 
 After each successful step, check:
 
@@ -208,7 +253,7 @@ Output: `<promise>LOOP_DONE</promise>`
 
 This signals the stop hook to allow the loop to exit. **Never output this promise unless genuinely complete and verified.**
 
-### 10. Log Everything
+### 11. Log Everything
 
 Use the execution stream for every significant event:
 
