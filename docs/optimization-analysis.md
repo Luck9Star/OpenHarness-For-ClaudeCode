@@ -9,7 +9,7 @@
 | 循环层（loop） | `/loop` 集成 + `harness-execute` skill | 已覆盖 |
 | 状态层（外部文件） | 三层记忆：state(<2KB) + knowledge + execution_stream.log | 已覆盖 |
 | 工具层（shell/git/测试） | 通过 Claude Code 内置工具隐式提供 | 部分覆盖 |
-| 验证层（eval/check） | Oracle 隔离 eval-agent + eval-check.py + verify_instruction | 已覆盖 |
+| 验证层（eval/check） | Oracle 隔离 eval-agent + verify_instruction | 已覆盖 |
 | 安全层（断路器/hook） | 断路器(3次) + PreToolUse hook + 状态只读 | 已覆盖 |
 
 ## 二、已对齐的实践
@@ -115,7 +115,7 @@ if completed_steps / total_steps >= 0.6:
 
 **文档要求（3.3 节）：** 建议准备 `run.sh` / `test.sh` 一键运行或验证脚本。
 
-**当前差距：** openharness-cc 有 `eval-check.py` 执行 `verify_instruction`，但这是框架层面的验证。项目本身没有自动生成的一键验证脚本。
+**当前差距：** openharness-cc 的 eval-agent 执行 `verify_instruction`，但这是框架层面的验证。项目本身没有自动生成的一键验证脚本。
 
 **优化方案：** init skill 在分析项目结构时，根据检测到的技术栈自动生成验证脚本：
 

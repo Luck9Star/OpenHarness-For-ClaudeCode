@@ -373,7 +373,7 @@ openharness-cc/
   commands/        4 个斜杠命令（start, dev, status, edit）
   agents/          3 个自主 agent（dev-agent, eval-agent, review-agent）
   hooks/           3 个事件 hook（SessionStart, PreToolUse, Stop）
-  scripts/         4 个工具脚本（state-manager, eval-check, setup-loop, cleanup）
+  scripts/         3 个工具脚本（state-manager, setup-loop, cleanup）
   templates/       4 个脚手架模板（mission, playbook, eval-criteria, progress）
 ```
 

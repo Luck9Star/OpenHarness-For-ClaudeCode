@@ -335,7 +335,7 @@ openharness-cc/
   commands/        4 slash commands (start, dev, status, edit)
   agents/          3 autonomous agents (dev-agent, eval-agent, review-agent)
   hooks/           3 event hooks (SessionStart, PreToolUse, Stop)
-  scripts/         4 utility scripts (state-manager, eval-check, setup-loop, cleanup)
+  scripts/         3 utility scripts (state-manager, setup-loop, cleanup)
   templates/       4 scaffold templates (mission, playbook, eval-criteria, progress)
 ```
 

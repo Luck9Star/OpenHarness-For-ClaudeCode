@@ -149,8 +149,9 @@ Pause the loop for human inspection and approval. This step type suspends execut
    - Highlight any pending issues or failures
    - Show current state of eval criteria
 2. Output the summary to the user
-3. Update state and pause:
+3. Advance the step counter and pause:
    ```
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" step-advance
    python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" update status paused
    python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Human-review checkpoint: paused for user inspection"
    ```
@@ -174,24 +175,13 @@ Spawn `harness-eval-agent` for independent validation — regardless of executio
 
 ### 6. Run Validation
 
-After step execution, validate the result:
-
-#### If `verify_instruction` is set in state:
-
-```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/eval-check.py"
-```
-
-This runs the configured verify command and reports pass/fail.
-
-#### For oracle-isolated evaluation:
-
-Spawn `harness-eval-agent` with:
+After step execution, validate the result by spawning `harness-eval-agent` with:
 - The eval criteria from `eval-criteria.md`
 - The current step description
+- The verify_instruction (if set in state) — the agent interprets this independently
 - Instructions to independently verify without reading your implementation
 
-The eval-agent reports PASS or FAIL.
+The eval-agent checks file existence, runs verify commands, and evaluates semantic criteria. It reports PASS or FAIL in `logs/eval_report.json`.
 
 ### 7. On PASS — Update State
 
