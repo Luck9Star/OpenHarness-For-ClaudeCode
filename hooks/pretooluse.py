@@ -16,8 +16,7 @@ from pathlib import Path
 
 # Files that are always write-protected (managed by scripts only)
 PROTECTED_FILES = {
-    "mission.md",
-    ".claude/harness-state.local.md",
+    ".claude/harness-state.json",
 }
 
 # Tools that modify files and must be checked
@@ -25,10 +24,10 @@ WRITE_TOOLS = {"Write", "Edit", "MultiEdit"}
 
 
 def find_harness_root():
-    """Walk up from cwd to find a directory with .claude/harness-state.local.md."""
+    """Walk up from cwd to find a directory with .claude/harness-state.json."""
     p = Path.cwd()
     while p != p.parent:
-        if (p / ".claude" / "harness-state.local.md").exists():
+        if (p / ".claude" / "harness-state.json").exists():
             return p
         p = p.parent
     return None

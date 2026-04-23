@@ -9,7 +9,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 # Check if harness workspace is active
-STATE_FILE=".claude/harness-state.local.md"
+STATE_FILE=".claude/harness-state.json"
 
 if [[ ! -f "$STATE_FILE" ]]; then
   # No active harness workspace — plugin stays dormant
@@ -25,8 +25,8 @@ fi
 
 CORE_CONTENT=$(cat "$CORE_SKILL")
 
-# Read state summary (frontmatter only, first 30 lines to stay under context budget)
-STATE_SUMMARY=$(head -n 30 "$STATE_FILE")
+# Read state summary as formatted JSON (compact for context budget)
+STATE_SUMMARY=$(jq -c '.' "$STATE_FILE" 2>/dev/null || cat "$STATE_FILE")
 
 # Escape for JSON embedding
 escape_for_json() {

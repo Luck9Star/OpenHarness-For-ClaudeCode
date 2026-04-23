@@ -92,7 +92,7 @@ INIT_ARGS+=(--max-iterations "$MAX_ITERATIONS")
 python3 "$STATE_MANAGER" init "${INIT_ARGS[@]}"
 
 # ---- Verify state file was created ----
-STATE_FILE=".claude/harness-state.local.md"
+STATE_FILE=".claude/harness-state.json"
 
 if [[ ! -f "$STATE_FILE" ]]; then
   echo "Error: State file was not created at $STATE_FILE" >&2

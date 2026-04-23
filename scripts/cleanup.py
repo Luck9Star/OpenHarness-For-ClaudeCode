@@ -12,6 +12,8 @@ import sys
 import os
 import gzip
 import shutil
+import json
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -21,7 +23,7 @@ PROGRESS_KEEP_RUNS = 50
 MAX_STATE_SIZE = 2048                  # 2KB
 
 # State file location
-STATE_FILE = ".claude/harness-state.local.md"
+STATE_FILE = ".claude/harness-state.json"
 LOG_FILE = "logs/execution_stream.log"
 PROGRESS_FILE = "progress.md"
 DREAM_JOURNAL = "logs/dream_journal.md"
@@ -77,7 +79,6 @@ def cleanup_progress(base_path):
     text = progress_path.read_text()
 
     # Find all run entries (### Run #NNN)
-    import re
     runs = list(re.finditer(r'(### Run #(\d+).*?)(?=### Run #|\Z)', text, re.DOTALL))
 
     if not runs:
@@ -139,45 +140,29 @@ def cleanup_state(base_path):
         report("state", f"State file is {size} bytes — under {MAX_STATE_SIZE} byte limit.")
         return
 
-    text = state_path.read_text()
+    try:
+        with open(state_path) as f:
+            state = json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        report("state", f"Cannot parse state file: {e}. Skipping.")
+        return
 
-    # Try trimming the Knowledge Index table
-    # Find the Knowledge Index section
-    import re
-    ki_match = re.search(
-        r'(## Knowledge Index\n.*?)(?=##|\Z)',
-        text,
-        re.DOTALL
-    )
+    # Try trimming the knowledge_index list if present
+    knowledge_index = state.get("knowledge_index", [])
+    if knowledge_index and len(knowledge_index) > 3:
+        original_count = len(knowledge_index)
+        state["knowledge_index"] = knowledge_index[-3:]  # Keep last 3 entries
 
-    if ki_match:
-        ki_section = ki_match.group(1)
-        # Find all table rows (lines starting with |)
-        rows = [line for line in ki_section.split('\n') if line.strip().startswith('|')]
+        with open(state_path, "w") as f:
+            json.dump(state, f, indent=2)
+            f.write("\n")
 
-        # Keep header rows (first 2) and trim data rows
-        if len(rows) > 4:
-            header_rows = rows[:2]  # | Topic | Path | Updated | and |---|---|---|
-            data_rows = rows[2:]
-            kept_rows = data_rows[-3:]  # Keep last 3 knowledge entries
-
-            new_ki = (
-                "## Knowledge Index\n\n"
-                + '\n'.join(header_rows) + '\n'
-                + '\n'.join(kept_rows) + '\n'
-                + "\n> Full index available in knowledge/index.md\n"
-            )
-            text = text[:ki_match.start()] + new_ki + text[ki_match.end():]
-            state_path.write_text(text)
-
-            new_size = state_path.stat().st_size
-            report("state", f"Trimmed knowledge index: {size} -> {new_size} bytes")
-            if new_size > MAX_STATE_SIZE:
-                report("state", f"WARNING: State file still over {MAX_STATE_SIZE} bytes after trimming. Manual intervention needed.")
-        else:
-            report("state", f"Knowledge index has few entries ({len(rows) - 2} data rows). Cannot trim further.")
+        new_size = state_path.stat().st_size
+        report("state", f"Trimmed knowledge index: {original_count} -> 3 entries ({size} -> {new_size} bytes)")
+        if new_size > MAX_STATE_SIZE:
+            report("state", f"WARNING: State file still over {MAX_STATE_SIZE} bytes after trimming. Manual intervention needed.")
     else:
-        report("state", "No Knowledge Index section found to trim.")
+        report("state", "Knowledge index has few entries or is absent. Cannot trim further.")
 
 
 def cleanup_temp(base_path):
