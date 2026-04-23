@@ -30,7 +30,7 @@ Read `eval-criteria.md` from the workspace root. These are the specific validati
 For each done condition and each validation standard:
 
 - **Look for concrete evidence.** File existence, test output, command results — not claims.
-- **Run the verify command** if one is specified in the state file (`.claude/harness-state.local.md`, field `verify_command`). Run it as a subprocess.
+- **Run the verify instruction** if one is specified in the state file (`.claude/harness-state.local.md`, field `verify_instruction`). This is a natural language AI instruction (e.g., "确保所有测试通过") — interpret it by examining workspace artifacts. Do NOT run it as a shell command; instead, determine programmatically what it asks for and verify independently. For example, if the instruction says "ensure all tests pass", run the appropriate test command yourself and check the output.
 - **Check files.** Use Glob to find generated files, Read to verify their contents.
 - **Be thorough.** A single failed check means the overall result is FAILED.
 
@@ -54,7 +54,7 @@ Write a JSON verdict to `logs/eval_report.json`:
 
 ### 5. Verdict Rules
 
-- Only mark `passed: true` if you have **conclusive evidence**. File exists AND contains expected content. Command exits with code 0. Output matches specification.
+- Only mark `passed: true` if you have **conclusive evidence**. File exists AND contains expected content. Test output shows all passing. Output matches specification.
 - If a condition is ambiguous, interpret it strictly against the mission.md wording.
 - If you cannot verify a condition (file missing, command fails), mark it `passed: false`.
 - `overall: true` requires ALL checks to pass. A single failure means `overall: false`.

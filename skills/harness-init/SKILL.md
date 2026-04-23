@@ -13,12 +13,12 @@ Ask the user (only once, combine into a single prompt):
 
 1. **Task description** — a single sentence describing what to accomplish (required)
 2. **Execution mode** — `single` (default, you plan and code) or `dual` (you plan only, a separate agent codes)
-3. **Verify command** — the command to validate work (e.g., `npm test`, `pytest`, `cargo test`). Optional — press enter to skip.
+3. **Verify instruction** — a natural language instruction for the eval-agent to validate work (e.g., `确保所有测试通过`, `API endpoints return correct status codes`). Optional — press enter to skip.
 
 Wait for the user's response before proceeding. Parse their input:
 - The first part (or whole input) is the task description
 - `--mode single` or `--mode dual` selects execution mode (default: `single`)
-- `--verify COMMAND` sets the verify command (default: none)
+- `--verify INSTRUCTION` sets the verify instruction (default: none)
 
 ## Step 2: Determine Workspace Path
 
@@ -57,7 +57,7 @@ Fill these fields based on the task description:
 - **Boundaries**: set reasonable allowed/prohibited operations:
   - Allowed: read/write project source files, run tests and dev tools, install dependencies
   - Prohibited: modify files outside project, push to remote without confirmation, delete non-generated files
-- **Execution Parameters**: set verify_command and execution_mode from user input
+- **Execution Parameters**: set verify_instruction and execution_mode from user input
 - **Output Definition**: describe the expected output artifacts
 
 ### playbook.md
@@ -73,7 +73,7 @@ Create a concrete step-by-step execution plan:
 
 Create validation standards:
 - At least 2-3 standards covering the task's key outputs
-- Include a "verify_command passes" standard if a verify command was provided
+- Include a "verify_instruction passes" standard if a verify instruction was provided
 - Each standard must have: check name, method, pass condition, on-fail action
 - Keep all checks machine-verifiable — no subjective assessments
 
@@ -89,7 +89,7 @@ Initialize with:
 Run the state manager to create the state file:
 
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py init <task-name> --mode <mode> --verify "<verify-command>"
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py init <task-name> --mode <mode> --verify "<verify-instruction>"
 ```
 
 This creates `.claude/harness-state.local.md` and `logs/execution_stream.log`.
@@ -115,7 +115,7 @@ Harness workspace initialized.
 
 Task: <task-name>
 Mode: <single|dual>
-Verify: <command or "none">
+Verify: <instruction or "none">
 
 Files created:
   mission.md        — objective, done conditions, boundaries

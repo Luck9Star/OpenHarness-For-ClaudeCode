@@ -25,7 +25,7 @@
 | Field | Value |
 |---|---|
 | Check | `[e.g., Test suite passes]` |
-| Method | `[e.g., Run verify_command from mission.md]` |
+| Method | `[e.g., Eval-agent interprets verify_instruction from state file]` |
 | Pass Condition | `[e.g., Exit code 0, no failing tests]` |
 | On Fail | `[e.g., Read error output, feed back to agent]` |
 

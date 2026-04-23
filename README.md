@@ -25,7 +25,7 @@ claude --plugin-dir /path/to/openharness-cc
 git clone https://github.com/Luck9Star/OpenHarness-For-ClaudeCode ~/.claude/plugins/openharness-cc
 ```
 
-安装后，在任意项目目录启动 Claude Code 即可使用 `/harness-start`、`/harness-dev`、`/harness-status` 命令。
+安装后，在任意项目目录启动 Claude Code 即可使用 `/harness-start`、`/harness-dev`、`/harness-status`、`/harness-edit` 命令。
 
 ## 使用流程
 
@@ -34,7 +34,11 @@ git clone https://github.com/Luck9Star/OpenHarness-For-ClaudeCode ~/.claude/plug
 告诉 Claude Code 你要做什么。插件会自动生成合约文件。
 
 ```bash
-/harness-start "为当前项目添加用户注册和登录功能" --verify "npm test"
+# 直接描述任务
+/harness-start "为当前项目添加用户注册和登录功能" --verify "确保所有测试通过"
+
+# 从方案文件初始化（如 superpowers 产出的计划）
+/harness-start --from-plan docs/superpowers/specs/my-feature-design.md --mode dual
 ```
 
 **这条命令会做什么：**
@@ -49,16 +53,19 @@ git clone https://github.com/Luck9Star/OpenHarness-For-ClaudeCode ~/.claude/plug
 
 | 参数 | 必填 | 说明 | 示例 |
 |---|---|---|---|
-| `"任务描述"` | 是 | 一句话描述你想让 Agent 完成什么 | `"构建 REST API"` |
+| `"任务描述"` | 是* | 一句话描述你想让 Agent 完成什么 | `"构建 REST API"` |
+| `--from-plan PATH` | 是* | 从方案/计划文件初始化任务（与任务描述二选一） | `--from-plan plan.md` |
 | `--mode single\|dual` | 否 | 执行模式，默认 `single`（见下方说明） | `--mode dual` |
-| `--verify "命令"` | 否 | 每步完成后自动运行的验证命令 | `--verify "npm test"` |
+| `--verify "指令"` | 否 | 自然语言验证指令，eval-agent 用来判断任务是否完成 | `--verify "确保所有测试通过"` |
+
+> *任务描述和 `--from-plan` 二选一，至少提供一个。
 
 ### 第二步：启动开发循环 `/harness-dev`
 
 Agent 开始自主工作，循环执行直到任务完成。
 
 ```bash
-/harness-dev --verify "npm test"
+/harness-dev
 ```
 
 **这条命令会做什么：**
@@ -66,8 +73,8 @@ Agent 开始自主工作，循环执行直到任务完成。
 1. 读取 `mission.md` 了解任务目标
 2. 读取 `playbook.md` 按步骤执行
 3. 每完成一个步骤：
-   - 运行 `--verify` 指定的命令（如 `npm test`）
    - 派生独立的 eval-agent 做 Oracle 隔离验证
+   - eval-agent 根据 `--verify` 指令（自然语言）独立判断
    - 验证通过 → 进入下一步
    - 验证失败 → 读取错误，自动修复，重试
 4. 连续失败 3 次 → **断路器触发**，自动停止，防止无限循环浪费 token
@@ -78,10 +85,33 @@ Agent 开始自主工作，循环执行直到任务完成。
 | 参数 | 必填 | 说明 | 示例 |
 |---|---|---|---|
 | `--mode single\|dual` | 否 | 执行模式，默认 `single` | `--mode dual` |
-| `--verify "命令"` | 否 | 每步完成后的验证命令，失败则自动修复重试 | `--verify "pytest"` |
+| `--worktree` | 否 | dual 模式下启用 git worktree 隔离（默认在当前目录工作） | `--worktree` |
 | `--max-iterations N` | 否 | 最大循环次数，0 表示无限（默认） | `--max-iterations 10` |
 
-### 第三步（可选）：查看状态 `/harness-status`
+> 注意：`--verify` 只在 `/harness-start` 中指定，`/harness-dev` 从状态文件读取，无需重复。
+
+### 修改任务 `/harness-edit`
+
+任务初始化后，可以随时修改任务配置：
+
+```bash
+# 修改验证指令
+/harness-edit --verify "确保所有 API 返回正确状态码"
+
+# 修改任务描述
+/harness-edit --mission "新增用户头像上传功能"
+
+# 追加执行步骤
+/harness-edit --append-step "添加头像上传 API 端点"
+
+# 从文件加载修改
+/harness-edit --from-file docs/updated-plan.md
+
+# 无参数进入交互模式
+/harness-edit
+```
+
+### 查看状态 `/harness-status`
 
 随时查看当前任务进度。
 
@@ -91,29 +121,29 @@ Agent 开始自主工作，循环执行直到任务完成。
 
 显示：任务名称、执行模式、当前步骤、失败次数、断路器状态、总执行次数。
 
-## `--verify` 的作用
+## `--verify` 验证指令
 
-`--verify` 是 OpenHarness 外部验证机制的核心抓手。它指定一条**客观的、机器可执行的命令**，用来判断当前步骤是否真正完成。
+`--verify` 是 OpenHarness 外部验证机制的核心抓手。它接受一段**自然语言指令**，由独立的 eval-agent 解释并执行。
 
-**为什么需要它：** Agent 不能自我认证"我做完了"——这是 Harness Engineering 的基本原则。必须通过外部命令来验证。
+**为什么需要它：** Agent 不能自我认证"我做完了"——这是 Harness Engineering 的基本原则。必须通过独立的 eval-agent 来验证。
 
 **常用示例：**
 
 ```bash
-# Node.js 项目
-/harness-dev --verify "npm test"
+# 测试验证
+/harness-start "实现登录功能" --verify "确保所有测试通过"
 
-# Python 项目
-/harness-dev --verify "pytest"
+# 功能验证
+/harness-start "构建 REST API" --verify "所有 API 端点返回正确的 HTTP 状态码"
 
-# 带构建检查
-/harness-dev --verify "npm run build && npm test"
+# 综合验证
+/harness-start "重构认证模块" --verify "确保所有现有测试通过，新模块有完整的单元测试覆盖"
 
-# 自定义验证脚本
-/harness-dev --verify "bash scripts/check.sh"
+# 中文或英文均可
+/harness-start "Add payment integration" --verify "All payment flows complete successfully with no test failures"
 ```
 
-如果不指定 `--verify`，Agent 仍会执行 playbook 步骤，但只使用 eval-agent 做主观验证（检查文件是否存在、内容是否合理等），缺少客观的自动化检测。
+如果不指定 `--verify`，eval-agent 仍会根据 `eval-criteria.md` 做结构性验证（检查文件是否存在、内容是否合理等），但缺少针对性的语义验证。
 
 ## 执行模式
 
@@ -125,23 +155,35 @@ Agent 开始自主工作，循环执行直到任务完成。
 
 Agent 自己规划步骤，自己写代码，但**验证环节由独立的 eval-agent 完成**。适合 bugfix、单文件修改、小功能开发。
 
-### Dual 模式
+### Dual 模式（默认在当前目录工作）
+
+```
+主 Agent（只规划）→ dev-agent（当前目录中编码）→ eval-agent（独立验证）→ 通过/失败
+```
+
+规划和编码分离。主 Agent 写 tech spec，派生 `harness-dev-agent` 在当前目录实现代码。主要好处是**保护主 Agent 上下文**——编码细节留在子 agent 中。
+
+```bash
+/harness-dev --mode dual
+```
+
+### Dual 模式 + Worktree 隔离
 
 ```
 主 Agent（只规划）→ dev-agent（隔离 worktree 中编码）→ eval-agent（独立验证）→ 通过/失败
 ```
 
-规划和编码严格分离。主 Agent 写 tech spec，派生 `harness-dev-agent` 在独立 git worktree 中实现代码，eval-agent 验证。适合多模块开发、架构重构等需要严格隔离的场景。
+在 dual 模式基础上，加 `--worktree` 标志让 dev-agent 在独立 git worktree 分支中工作，代码变更在独立分支上完成后合并回主分支。适合多模块开发、架构重构等需要**严格 git 隔离**的场景。
 
 ```bash
-/harness-dev --mode dual --verify "npm test"
+/harness-dev --mode dual --worktree
 ```
 
 ## 完整工作流示例
 
 ```
 你在 Claude Code 中输入:
-  /harness-start "为 Express 应用添加 JWT 认证中间件" --verify "npm test"
+  /harness-start "为 Express 应用添加 JWT 认证中间件" --verify "确保所有测试通过"
 
 插件自动生成:
   mission.md      → 定义目标：实现 JWT 认证，所有测试通过
@@ -150,26 +192,26 @@ Agent 自己规划步骤，自己写代码，但**验证环节由独立的 eval-
   harness-state.local.md → 状态：idle, Step 1
 
 你启动循环:
-  /harness-dev --verify "npm test"
+  /harness-dev
 
 第1轮循环:
   → 读状态文件: Step 1
   → 执行: 安装 jsonwebtoken 等依赖
-  → 验证: npm test → PASS
+  → eval-agent 验证: 所有测试通过 → PASS
   → 状态更新: Step 1 完成，进入 Step 2
 
 第2轮循环:
   → 读状态文件: Step 2
   → 执行: 编写 auth.middleware.js
-  → 验证: npm test → FAIL (缺少测试用例)
+  → eval-agent 验证: 测试失败 → FAIL (缺少测试用例)
   → 自动修复: 补充测试
-  → 验证: npm test → PASS
+  → eval-agent 验证: 所有测试通过 → PASS
   → 状态更新: Step 2 完成，进入 Step 3
 
 ...（自动继续直到所有步骤完成）
 
 最终:
-  → 所有步骤完成 + 验证通过
+  → 所有步骤完成 + eval-agent 确认验证通过
   → 输出 <promise>LOOP_DONE</promise>
   → 循环退出
 ```
@@ -188,7 +230,7 @@ Agent 自己规划步骤，自己写代码，但**验证环节由独立的 eval-
 ```
 openharness-cc/
   skills/          5 个行为技能（core, init, execute, eval, dream）
-  commands/        3 个斜杠命令（start, dev, status）
+  commands/        4 个斜杠命令（start, dev, status, edit）
   agents/          2 个自主 agent（dev-agent, eval-agent）
   hooks/           3 个事件 hook（SessionStart, PreToolUse, Stop）
   scripts/         4 个工具脚本（state-manager, eval-check, setup-loop, cleanup）

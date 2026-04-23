@@ -89,7 +89,7 @@ Spawn `harness-dev-agent` with git worktree isolation — code changes happen on
 
 After step execution, validate the result:
 
-#### If `verify_command` is set in state:
+#### If `verify_instruction` is set in state:
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/eval-check.py"

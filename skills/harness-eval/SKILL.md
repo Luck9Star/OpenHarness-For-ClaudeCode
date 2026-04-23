@@ -15,7 +15,7 @@ Execute the external validation script:
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/eval-check.py
 ```
 
-This reads `eval-criteria.md` and the state file, runs the verify command (if set), and checks each standard. It writes results to `logs/eval_report.json`.
+This reads `eval-criteria.md` and the state file, checks each standard, and logs any `verify_instruction` for the eval-agent to interpret. It writes results to `logs/eval_report.json`.
 
 Read the output. If the script exits with code 0, all objective checks passed. If it exits with code 1, some checks failed.
 
@@ -39,7 +39,7 @@ Spawn `harness-eval-agent` as an independent evaluator. This agent:
 - Cannot see your reasoning or planning
 - Reads mission.md done conditions and eval-criteria.md independently
 - Checks each condition against workspace artifacts
-- Runs verify_command if available
+- Interprets verify_instruction (natural language AI instruction) independently
 - Produces its own verdict in `logs/eval_report.json`
 
 Spawn the agent:

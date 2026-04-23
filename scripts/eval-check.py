@@ -11,7 +11,6 @@ If --workspace is not provided, uses current working directory.
 """
 
 import sys
-import os
 import re
 import json
 import subprocess
@@ -96,8 +95,8 @@ def extract_field(section, field_name):
     return ""
 
 
-def run_verify_command(command, workspace, timeout=120):
-    """Run the verify command and return result."""
+def run_shell_command(command, workspace, timeout=120):
+    """Run a shell command and return result. Used for method-based checks only."""
     if not command:
         return None
 
@@ -158,7 +157,7 @@ def check_standard(standard, workspace):
         cmd_match = re.search(r'`([^`]+)`', method)
         if cmd_match:
             cmd = cmd_match.group(1)
-            result = run_verify_command(cmd, workspace)
+            result = run_shell_command(cmd, workspace)
             if result:
                 if result["passed"]:
                     return True, f"Command `{cmd}` exited with code 0"
@@ -197,9 +196,9 @@ def main():
 
     workspace = find_workspace(workspace)
 
-    # Read state file for verify command
+    # Read state file for verify instruction
     state = read_state_file(workspace)
-    verify_command = state.get("verify_command", "")
+    verify_instruction = state.get("verify_instruction", "")
 
     # Parse eval criteria
     standards = parse_eval_criteria(workspace)
@@ -215,18 +214,13 @@ def main():
     else:
         checks = []
 
-        # Run verify command if available
-        verify_result = None
-        if verify_command:
-            verify_result = run_verify_command(verify_command, workspace)
+        # Run verify instruction if available (logged for eval-agent to interpret)
+        if verify_instruction:
             checks.append({
-                "name": "verify_command",
-                "passed": verify_result["passed"] if verify_result else False,
-                "detail": (
-                    f"Ran `{verify_command}` — exit code {verify_result['exit_code']}"
-                    if verify_result
-                    else "Failed to run verify command"
-                ),
+                "name": "verify_instruction",
+                "instruction": verify_instruction,
+                "passed": None,  # Delegated to eval-agent for AI interpretation
+                "detail": f"Verify instruction: '{verify_instruction}' — requires eval-agent interpretation",
             })
 
         # Check each standard
@@ -238,7 +232,7 @@ def main():
                 "detail": detail,
             })
 
-        overall = all(c["passed"] for c in checks)
+        overall = all(c["passed"] is True for c in checks)
 
         report = {
             "checks": checks,
