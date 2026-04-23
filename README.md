@@ -1,75 +1,91 @@
 # OpenHarness for Claude Code
 
-Autonomous AI agent execution framework adapted from [OpenHarness](https://github.com/thu-nmrc/OpenHarness) Harness Engineering principles for Claude Code.
+基于 [OpenHarness](https://github.com/thu-nmrc/OpenHarness) Harness Engineering 原则，为 Claude Code 适配的自主 AI Agent 执行框架。
 
-## What It Does
+[English](README.en.md) | 中文
 
-Turns Claude Code into a 24/7 autonomous development worker through **mechanical constraints, external audit, and 100% traceability**:
+## 它做什么
 
-- **Machine-verifiable contracts** — objective "done" conditions, no subjective judgments
-- **Oracle-isolated validation** — an independent agent validates your work; you cannot self-certify
-- **Circuit breaker** — auto-stops after 3 consecutive failures
-- **Three-layer memory** — state pointer (<2KB) + knowledge files + execution stream
-- **Dual execution mode** — single (plan+code) or dual (plan → spawn coder agent)
-- **`/loop` integration** — recurring execution without external cron
+通过**机械约束、外部审计、100% 可追溯**，将 Claude Code 变成 24/7 自主开发工作者：
 
-## Quick Start
+- **机器可验证合约** — 客观的"完成"判定条件，拒绝主观判断
+- **Oracle 隔离验证** — 独立 agent 验证你的工作，你不能自我认证
+- **断路器保护** — 连续 3 次失败后自动停止
+- **三层记忆** — 状态指针 (<2KB) + 知识文件 + 执行流日志
+- **可切换执行模式** — single（规划+编码）或 dual（规划 → 派生编码 agent）
+- **`/loop` 集成** — 无需外部 cron，使用 Claude Code 内置循环
+
+## 快速开始
 
 ```bash
-# Install plugin
+# 安装插件
 claude --plugin-dir /path/to/openharness-cc
 
-# Initialize a new task
-/harness-start "Build a REST API for user management" --verify "npm test"
+# 初始化新任务
+/harness-start "构建用户管理的 REST API" --verify "npm test"
 
-# Start autonomous development loop
+# 启动自主开发循环
 /harness-dev --mode single --verify "npm test"
 
-# Check current status
+# 查看当前状态
 /harness-status
 ```
 
-## Commands
+## 命令
 
-| Command | Description |
+| 命令 | 说明 |
 |---|---|
-| `/harness-start` | Initialize a new harness task with mission, playbook, eval criteria |
-| `/harness-dev` | Start the autonomous development loop (single or dual mode) |
-| `/harness-status` | Show current workspace status, progress, and circuit breaker state |
+| `/harness-start` | 初始化新的 harness 任务（创建 mission、playbook、eval criteria） |
+| `/harness-dev` | 启动自主开发循环（single 或 dual 模式） |
+| `/harness-status` | 显示工作区状态、进度和断路器状态 |
 
-## Architecture
+## 架构
 
 ```
 openharness-cc/
-  skills/          5 behavioral skills (core, init, execute, eval, dream)
-  commands/        3 slash commands (start, dev, status)
-  agents/          2 autonomous agents (dev-agent, eval-agent)
-  hooks/           3 event hooks (SessionStart, PreToolUse, Stop)
-  scripts/         4 utility scripts (state-manager, eval-check, setup-loop, cleanup)
-  templates/       4 scaffold templates (mission, playbook, eval-criteria, progress)
+  skills/          5 个行为技能（core, init, execute, eval, dream）
+  commands/        3 个斜杠命令（start, dev, status）
+  agents/          2 个自主 agent（dev-agent, eval-agent）
+  hooks/           3 个事件 hook（SessionStart, PreToolUse, Stop）
+  scripts/         4 个工具脚本（state-manager, eval-check, setup-loop, cleanup）
+  templates/       4 个脚手架模板（mission, playbook, eval-criteria, progress）
 ```
 
-## Execution Modes
+## 执行模式
 
-### Single Mode (default)
-Main agent plans AND codes. Eval-agent validates independently. Best for bug fixes, single-file changes, small features.
+### Single 模式（默认）
+主 agent 同时负责规划和编码。eval-agent 独立验证。适合 bugfix、单文件修改、小功能。
 
-### Dual Mode
-Main agent plans only. Spawns `harness-dev-agent` in isolated worktree for coding. Eval-agent validates. Best for multi-module development, architecture refactors.
+### Dual 模式
+主 agent 只负责规划，派生 `harness-dev-agent` 在隔离 worktree 中编码。eval-agent 验证。适合多模块开发、架构重构。
 
-## OpenHarness Mapping
+## 核心工作流
 
-| OpenHarness (OpenClaw/Codex) | This Plugin |
+```
+/harness-start "任务描述"
+  → 创建 mission.md（合约）+ playbook.md（步骤）+ eval-criteria.md（验证标准）
+  → 初始化 .claude/harness-state.local.md（状态文件）
+
+/harness-dev --verify "npm test"
+  → Stop Hook 驱动每轮循环
+  → 每轮: 读状态 → 执行 playbook 步骤 → spawn eval-agent 验证 → 更新状态
+  → 连续失败 >= 3 → 断路器触发，停止执行
+  → 全部完成 → <promise>LOOP_DONE</promise> → 循环退出
+```
+
+## OpenHarness 映射
+
+| OpenHarness (OpenClaw/Codex) | 本插件 |
 |---|---|
-| `cron` + `harness_setup_cron.py` | `/loop` built-in command |
-| `harness_coordinator.py` | Claude Code agent spawning + worktrees |
-| `harness_eval.py` | `harness-eval-agent` (oracle isolation) |
-| `harness_boot.py` circuit breaker | Stop hook + state file |
+| `cron` + `harness_setup_cron.py` | `/loop` 内置命令 |
+| `harness_coordinator.py` | Claude Code agent spawning + worktree |
+| `harness_eval.py` | `harness-eval-agent`（Oracle 隔离） |
+| `harness_boot.py` 断路器 | Stop hook + 状态文件 |
 | `harness_dream.py` | `harness-dream` skill + `/loop 24h` |
 | `harness_linter.py` | PreToolUse hook |
 | `heartbeat.md` | `.claude/harness-state.local.md` |
 
-## License
+## 许可证
 
-Based on [OpenHarness](https://github.com/thu-nmrc/OpenHarness) by thu-nmrc (BSL 1.1).
-This Claude Code adaptation is provided as-is.
+基于 [OpenHarness](https://github.com/thu-nmrc/OpenHarness) by thu-nmrc (BSL 1.1)。
+本 Claude Code 适配版本按原样提供。
