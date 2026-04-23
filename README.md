@@ -361,9 +361,9 @@ AI 质量偏好提问:
 | 机制 | 说明 |
 |---|---|
 | 断路器 | 连续 3 次验证失败后自动停止，防止无限循环浪费 token |
-| PreToolUse Hook | 自动阻止违反 `mission.md` 禁止操作的文件写入 |
+| PreToolUse Hook | 保护 `.claude/harness-state.json` 不被 Agent 直接修改 |
 | Oracle 隔离 | eval-agent 无法看到主 Agent 的推理过程，只看工作区产物 |
-| 状态文件保护 | `mission.md` 和状态文件在初始化后变为只读，Agent 不可修改 |
+| 任务修改接口 | `mission.md`、`playbook.md` 等合约文件只能通过 `/harness-edit` 修改 |
 
 ## 架构
 
@@ -372,7 +372,7 @@ openharness-cc/
   skills/          7 个行为技能（core, start, dev, edit, status, eval, dream）
   agents/          3 个自主 agent（dev-agent, eval-agent, review-agent）
   hooks/           3 个事件 hook（SessionStart, PreToolUse, Stop）
-  scripts/         3 个工具脚本（state-manager, setup-loop, cleanup）
+  scripts/         4 个工具脚本（state-manager, stop-hook, setup-loop, cleanup）
   templates/       4 个脚手架模板（mission, playbook, eval-criteria, progress）
 ```
 

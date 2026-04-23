@@ -327,6 +327,15 @@ flowchart TD
   → All done → <promise>LOOP_DONE</promise> → loop exits
 ```
 
+## Safety Mechanisms
+
+| Mechanism | Description |
+|---|---|
+| Circuit breaker | Auto-stops after 3 consecutive validation failures, preventing infinite token-burning loops |
+| PreToolUse Hook | Protects `.claude/harness-state.json` from direct agent modification |
+| Oracle isolation | eval-agent cannot see the main agent's reasoning — only workspace artifacts |
+| Task modification gate | Contract files (`mission.md`, `playbook.md`) are only editable through `/harness-edit` |
+
 ## Architecture
 
 ```
@@ -334,7 +343,7 @@ openharness-cc/
   skills/          7 behavioral skills (core, start, dev, edit, status, eval, dream)
   agents/          3 autonomous agents (dev-agent, eval-agent, review-agent)
   hooks/           3 event hooks (SessionStart, PreToolUse, Stop)
-  scripts/         3 utility scripts (state-manager, setup-loop, cleanup)
+  scripts/         4 utility scripts (state-manager, stop-hook, setup-loop, cleanup)
   templates/       4 scaffold templates (mission, playbook, eval-criteria, progress)
 ```
 
