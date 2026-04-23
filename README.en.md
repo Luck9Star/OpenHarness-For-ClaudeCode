@@ -15,7 +15,7 @@ Turns Claude Code into a 24/7 autonomous development worker through **mechanical
 - **Dynamic workflow** — automatically generates develop/review/fix cycles based on task needs
 - **Switchable execution modes** — single (plan+code) or dual (plan → spawn coder agent)
 - **Skill injection** — specify skills for the dev-agent to load on demand
-- **`/loop` integration** — recurring execution without external cron
+- **`/loop` integration** — stop-hook drives step-by-step loop, one iteration per step
 
 ## Quick Start
 
@@ -27,7 +27,7 @@ claude --plugin-dir /path/to/openharness-cc
 /harness-start "Build a REST API for user management" --verify "Ensure all tests pass"
 
 # Start autonomous development loop
-/harness-dev
+/loop /harness-dev
 
 # Check current status
 /harness-status
@@ -105,7 +105,15 @@ For simple tasks (e.g., config changes), the AI auto-detects simplicity and gene
 
 ### Step 2: Start Development Loop `/harness-dev`
 
-Agent starts working autonomously, looping until the task is complete.
+Agent works autonomously, driven by the stop-hook loop mechanism. **Recommended: use `/loop` for continuous cycling:**
+
+```bash
+/loop /harness-dev
+```
+
+> **Loop mechanism**: Each iteration, the agent executes ONE playbook step → spawns eval-agent for validation → updates state → turn ends → stop-hook blocks exit → sends continuation prompt → next step executes. When all steps are complete and eval-agent confirms pass, the agent outputs `<promise>LOOP_DONE</promise>` and the loop exits.
+
+You can also run without `/loop` (relies on stop-hook to drive the loop):
 
 ```bash
 /harness-dev

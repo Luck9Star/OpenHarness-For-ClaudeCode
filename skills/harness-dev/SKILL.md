@@ -89,6 +89,8 @@ Then begin executing the playbook from the current step.
 
 ## Loop Iteration Workflow
 
+**CRITICAL CONSTRAINT: Execute exactly ONE playbook step per iteration.** After completing one step (including validation), your turn ends. The stop-hook will automatically drive the next iteration by blocking session exit and sending a continuation prompt. Do NOT execute multiple steps in one turn — this defeats the stop-hook loop mechanism.
+
 Each iteration follows this exact workflow. Do not improvise -- follow it precisely.
 
 ### 5.1. Read State File

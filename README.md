@@ -15,7 +15,7 @@
 - **动态工作流** — 根据任务需求自动生成开发/审查/修复循环
 - **可切换执行模式** — single（规划+编码）或 dual（规划 → 派生编码 agent）
 - **Skill 注入** — 指定 dev-agent 加载的技能，按需获取领域知识
-- **`/loop` 集成** — 无需外部 cron，使用 Claude Code 内置循环
+- **`/loop` 集成** — stop-hook 驱动 step-by-step 循环，一个 iteration 执行一个 step
 
 ## 安装
 
@@ -100,7 +100,15 @@ Step 1 (implement) → Step 2 (implement) → Step 3 (verify)
 
 ### 第二步：启动开发循环 `/harness-dev`
 
-Agent 开始自主工作，循环执行直到任务完成。
+Agent 开始自主工作，通过 stop-hook 驱动循环执行。**推荐使用 `/loop` 确保持续循环：**
+
+```bash
+/loop /harness-dev
+```
+
+> **循环机制**：每次 iteration，agent 执行一个 playbook step → spawn eval-agent 验证 → 更新状态 → turn 结束 → stop-hook 拦截退出 → 推送 continuation prompt → 执行下一个 step。直到所有 step 完成且 eval-agent 确认通过，agent 输出 `<promise>LOOP_DONE</promise>`，循环退出。
+
+也可以直接运行（不使用 `/loop`，依赖 stop-hook 驱动循环）：
 
 ```bash
 /harness-dev
