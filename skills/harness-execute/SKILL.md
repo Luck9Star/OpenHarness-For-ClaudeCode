@@ -58,7 +58,11 @@ After completing the step:
 
 #### Dual Mode (`execution_mode: dual`)
 
-You plan only. Delegate coding to a sub-agent:
+You plan only. Delegate coding to a sub-agent. Check `worktree` field in state file for isolation mode:
+
+**Dual Mode — In-Place (worktree: off, default)**
+
+Spawn `harness-dev-agent` as a regular subagent — it works in the same directory. The main benefit is **context protection**: coding details stay in the subagent's context, keeping yours clean.
 
 1. Read the current step requirements from the playbook
 2. Construct a detailed prompt that includes:
@@ -66,7 +70,17 @@ You plan only. Delegate coding to a sub-agent:
    - File paths to read and modify
    - Constraints from mission.md (especially Prohibited Operations)
    - The eval criteria this step must satisfy
-3. Spawn `harness-dev-agent` in an isolated worktree with the constructed prompt
+3. Spawn `harness-dev-agent` WITHOUT worktree isolation
+4. Wait for the agent to complete
+5. Log the delegation: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Delegated <step> to harness-dev-agent (in-place)"`
+
+**Dual Mode — Worktree (worktree: on)**
+
+Spawn `harness-dev-agent` with git worktree isolation — code changes happen on a separate branch.
+
+1. Read the current step requirements from the playbook
+2. Construct a detailed prompt (same as above)
+3. Spawn `harness-dev-agent` with `isolation: "worktree"` for git worktree isolation
 4. Wait for the agent to complete
 5. Merge the worktree changes back to the main branch
 6. Log the delegation: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Delegated <step> to harness-dev-agent in worktree"`

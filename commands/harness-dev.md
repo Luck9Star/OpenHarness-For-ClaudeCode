@@ -1,6 +1,6 @@
 ---
 description: "Start autonomous development loop for an OpenHarness task"
-argument-hint: "[--mode single|dual] [--verify COMMAND] [--max-iterations N]"
+argument-hint: "[--mode single|dual] [--worktree] [--max-iterations N]"
 allowed-tools: ["Bash", "Agent", "Read", "Write", "Edit"]
 ---
 
@@ -16,30 +16,34 @@ Check if an OpenHarness workspace exists in the current directory:
 - Look for `mission.md`
 
 If **no harness workspace exists**:
-1. Ask the user: "No OpenHarness workspace detected. Provide a task description to initialize one, or run `/harness-init` first."
-2. If the user provides a description, run `/harness-init` with that description.
-3. If the user says to run `/harness-init`, invoke the harness-init skill and wait for it to complete.
+1. Ask the user: "No OpenHarness workspace detected. Provide a task description to initialize one, or run `/harness-start` first."
+2. If the user provides a description, run `/harness-start` with that description.
+3. If the user says to run `/harness-start`, invoke the harness-init skill and wait for it to complete.
 
 ## Step 2: Parse Arguments
 
 Parse the command arguments (if any were provided):
 
 - `--mode single` (default): Agent plans and codes directly, with oracle validation
-- `--mode dual`: Agent plans only, then spawns `harness-dev-agent` for coding in an isolated worktree
-- `--verify COMMAND`: Shell command to run after each step for verification
+- `--mode dual`: Agent plans only, then spawns `harness-dev-agent` for coding. Protects main agent context from explosion.
+- `--worktree`: In dual mode, run dev-agent in an isolated git worktree (code changes in separate branch, merge on success). Without this flag, dev-agent works in the same directory — still protects main agent context but without git isolation.
 - `--max-iterations N`: Stop the loop after N iterations (0 = infinite)
 
 If `--mode` is not specified, default to `single`.
+`--worktree` only has effect in `dual` mode (ignored in single mode).
+
+Note: The `--verify` instruction is read from the state file (set during `/harness-start`). Do not specify it here.
 
 ## Step 3: Initialize Loop State
 
 Run the setup script to create or reset the loop state file:
 
 ```bash
-bash .claude-plugin-path/scripts/setup-harness-loop.sh <task-name> --mode <mode> --verify "<verify-command>" --max-iterations <N>
+bash .claude-plugin-path/scripts/setup-harness-loop.sh <task-name> --mode <mode> [--worktree] --max-iterations <N>
 ```
 
 Use the task name from `mission.md` (Section 1: Mission Name).
+The verify instruction is already in the state file from `/harness-start` — no need to pass it again.
 
 Verify the output confirms successful initialization.
 
@@ -48,8 +52,11 @@ Verify the output confirms successful initialization.
 **If single mode**, explain to the user:
 > Single mode active. I will plan each playbook step, implement the code directly, then spawn an eval-agent for independent verification. The loop continues until all done conditions are met or the circuit breaker trips.
 
-**If dual mode**, explain to the user:
-> Dual mode active. I will plan each playbook step, then spawn `harness-dev-agent` to implement code in an isolated worktree. After each coding pass, an eval-agent validates independently. The loop continues until all done conditions are met or the circuit breaker trips.
+**If dual mode (without --worktree)**, explain to the user:
+> Dual mode active (in-place). I will plan each playbook step, then spawn `harness-dev-agent` as a subagent to implement code in the current directory. This protects my context from explosion while keeping all changes in-place. After each coding pass, an eval-agent validates independently.
+
+**If dual mode (with --worktree)**, explain to the user:
+> Dual mode active (worktree). I will plan each playbook step, then spawn `harness-dev-agent` in an isolated git worktree to implement code. Changes happen on a separate branch and are merged back on success. After each coding pass, an eval-agent validates independently.
 
 ## Step 5: Read Mission and Begin Execution
 
@@ -75,7 +82,8 @@ Then begin executing the playbook from the current step.
 4. **Plan** — Analyze the current step from playbook.md, determine what code changes are needed
 5. **Execute**:
    - **Single mode**: Write/edit the code yourself
-   - **Dual mode**: Spawn `harness-dev-agent` via the Agent tool with a detailed tech spec prompt
+   - **Dual mode (without --worktree)**: Spawn `harness-dev-agent` via the Agent tool (no worktree isolation, agent works in same directory)
+   - **Dual mode (with --worktree)**: Spawn `harness-dev-agent` via the Agent tool with `isolation: "worktree"` for git worktree isolation
 6. **Verify** — If a `--verify` command was provided, run it
 7. **Validate** — Spawn `harness-eval-agent` to independently validate against eval-criteria.md
 8. **Update state**:

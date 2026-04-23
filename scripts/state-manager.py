@@ -85,8 +85,9 @@ def cmd_init(args):
     """Initialize a new state file."""
     task_name = args[0] if args else "untitled"
     execution_mode = "single"
-    verify_command = ""
+    verify_instruction = ""
     max_iterations = 0
+    worktree = "off"
 
     i = 1
     while i < len(args):
@@ -94,11 +95,14 @@ def cmd_init(args):
             execution_mode = args[i + 1]
             i += 2
         elif args[i] == "--verify" and i + 1 < len(args):
-            verify_command = args[i + 1]
+            verify_instruction = args[i + 1]
             i += 2
         elif args[i] == "--max-iterations" and i + 1 < len(args):
             max_iterations = int(args[i + 1])
             i += 2
+        elif args[i] == "--worktree":
+            worktree = "on"
+            i += 1
         else:
             i += 1
 
@@ -111,6 +115,7 @@ def cmd_init(args):
     content = f'''---
 status: idle
 execution_mode: {execution_mode}
+worktree: {worktree}
 current_step: "Step 1"
 consecutive_failures: 0
 total_executions: 0
@@ -118,7 +123,7 @@ circuit_breaker: off
 iteration: 0
 max_iterations: {max_iterations}
 session_id: ""
-verify_command: "{verify_command}"
+verify_instruction: "{verify_instruction}"
 last_execution_time: "{now}"
 ---
 
@@ -130,8 +135,9 @@ last_execution_time: "{now}"
 |---|---|
 | Task Name | `{task_name}` |
 | Execution Mode | `{execution_mode}` |
+| Worktree Isolation | `{worktree}` |
 | Current Status | `idle` |
-| Verify Command | `{verify_command}` |
+| Verify Instruction | `{verify_instruction}` |
 | Last Execution | `{now}` |
 | Total Executions | `0` |
 | Consecutive Failures | `0` |
