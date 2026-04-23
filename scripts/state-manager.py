@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """State manager for OpenHarness workspace.
 
-Reads and writes .claude/harness-state.local.md — the L1 pointer index
+Reads and writes .claude/harness-state.json — the L1 pointer index
 that persists across /loop iterations.
 
 Usage:
     state-manager.py read          Print current state as JSON
     state-manager.py init [opts]   Initialize a new state file
-    state-manager.py update KEY VAL  Update a frontmatter field
+    state-manager.py update KEY VAL  Update a field
     state-manager.py log MESSAGE   Append to execution stream (L3)
     state-manager.py report SUBTASK STRATEGY VERIFICATION STATE_TARGET
                                    Write structured round report (L3)
@@ -18,15 +18,14 @@ Usage:
 """
 
 import sys
-import re
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 
-STATE_FILE = ".claude/harness-state.local.md"
+STATE_FILE = ".claude/harness-state.json"
 LOG_FILE = "logs/execution_stream.log"
 
-# Maximum state file size in bytes (2KB target)
 MAX_STATE_SIZE = 2048
 
 
@@ -41,35 +40,25 @@ def find_state_file():
     return None
 
 
-def read_frontmatter(path):
-    """Parse YAML-like frontmatter from markdown file."""
-    text = path.read_text()
-    match = re.match(r'^---\n(.*?)\n---', text, re.DOTALL)
-    if not match:
+def read_state(path=None):
+    """Read JSON state file."""
+    target = path or find_state_file()
+    if not target:
         return {}
-    fm = {}
-    for line in match.group(1).split('\n'):
-        if ':' in line:
-            key, val = line.split(':', 1)
-            fm[key.strip()] = val.strip().strip('"').strip("'")
-    return fm
+    try:
+        return json.loads(target.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}
 
 
-def write_frontmatter(path, fm):
-    """Write frontmatter back to state file, preserving body."""
-    text = path.read_text()
-    # Remove existing frontmatter
-    body = re.sub(r'^---\n.*?\n---\n?', '', text, count=1, flags=re.DOTALL)
-    # Build new frontmatter
-    lines = ['---']
-    for key, val in fm.items():
-        if ' ' in str(val) or '"' in str(val):
-            lines.append(f'{key}: "{val}"')
-        else:
-            lines.append(f'{key}: {val}')
-    lines.append('---')
-    new_text = '\n'.join(lines) + '\n' + body
-    path.write_text(new_text)
+def write_state(state, path=None):
+    """Write JSON state file."""
+    target = path or find_state_file()
+    if not target:
+        print("No active harness workspace", file=sys.stderr)
+        sys.exit(1)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(state, indent=2) + "\n")
 
 
 def cmd_read(args):
@@ -78,8 +67,7 @@ def cmd_read(args):
     if not path:
         print(json.dumps({"error": "no active harness workspace"}))
         sys.exit(1)
-    fm = read_frontmatter(path)
-    print(json.dumps(fm, indent=2))
+    print(json.dumps(read_state(path), indent=2))
 
 
 def cmd_init(args):
@@ -113,60 +101,28 @@ def cmd_init(args):
 
     state_dir = Path.cwd() / ".claude"
     state_dir.mkdir(parents=True, exist_ok=True)
-    state_path = state_dir / "harness-state.local.md"
+    state_path = state_dir / "harness-state.json"
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    skills_display = skills if skills else "none"
+    state = {
+        "status": "idle",
+        "execution_mode": execution_mode,
+        "worktree": worktree,
+        "current_step": "Step 1",
+        "consecutive_failures": 0,
+        "total_executions": 0,
+        "circuit_breaker": "off",
+        "iteration": 0,
+        "max_iterations": max_iterations,
+        "session_id": "",
+        "verify_instruction": verify_instruction,
+        "skills": skills,
+        "last_execution_time": now,
+        "task_name": task_name,
+    }
 
-    content = f'''---
-status: idle
-execution_mode: {execution_mode}
-worktree: {worktree}
-current_step: "Step 1"
-consecutive_failures: 0
-total_executions: 0
-circuit_breaker: off
-iteration: 0
-max_iterations: {max_iterations}
-session_id: ""
-verify_instruction: "{verify_instruction}"
-skills: "{skills}"
-last_execution_time: "{now}"
----
-
-# Harness State
-
-## System Status
-
-| Field | Value |
-|---|---|
-| Task Name | `{task_name}` |
-| Execution Mode | `{execution_mode}` |
-| Worktree Isolation | `{worktree}` |
-| Current Status | `idle` |
-| Verify Instruction | `{verify_instruction}` |
-| Skills | `{skills_display}` |
-| Last Execution | `{now}` |
-| Total Executions | `0` |
-| Consecutive Failures | `0` |
-| Circuit Breaker | `off` |
-
-## Execution Pointer
-
-| Field | Value |
-|---|---|
-| Current Step | `Step 1 (Not started)` |
-| Completed Steps | `None` |
-
-## Knowledge Index
-
-| Topic | Path | Updated |
-|---|---|---|
-| _(none yet)_ | - | - |
-'''
-
-    state_path.write_text(content)
+    write_state(state, state_path)
 
     # Ensure log directory exists
     log_dir = Path.cwd() / "logs"
@@ -183,7 +139,7 @@ last_execution_time: "{now}"
 
 
 def cmd_update(args):
-    """Update a frontmatter field: state-manager.py update KEY VALUE"""
+    """Update a state field: state-manager.py update KEY VALUE"""
     if len(args) < 2:
         print("Usage: state-manager.py update KEY VALUE", file=sys.stderr)
         sys.exit(1)
@@ -191,12 +147,10 @@ def cmd_update(args):
     if not path:
         print("No active harness workspace", file=sys.stderr)
         sys.exit(1)
-    fm = read_frontmatter(path)
-    fm[args[0]] = ' '.join(args[1:])
-    write_frontmatter(path, fm)
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    fm["last_execution_time"] = now
-    write_frontmatter(path, fm)
+    state = read_state(path)
+    state[args[0]] = " ".join(args[1:])
+    state["last_execution_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    write_state(state, path)
 
 
 def cmd_log(args):
@@ -204,11 +158,11 @@ def cmd_log(args):
     if not args:
         print("Usage: state-manager.py log MESSAGE", file=sys.stderr)
         sys.exit(1)
-    message = ' '.join(args)
+    message = " ".join(args)
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     log_path = Path.cwd() / LOG_FILE
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(log_path, 'a') as f:
+    with open(log_path, "a") as f:
         f.write(f"[{now}] {message}\n")
 
 
@@ -217,13 +171,13 @@ def cmd_step_advance(args):
     path = find_state_file()
     if not path:
         sys.exit(1)
-    fm = read_frontmatter(path)
-    current = fm.get("current_step", "Step 1")
-    match = re.search(r'Step (\d+)', current)
+    state = read_state(path)
+    current = state.get("current_step", "Step 1")
+    match = re.search(r"Step (\d+)", current)
     if match:
         next_num = int(match.group(1)) + 1
-        fm["current_step"] = f"Step {next_num}"
-        write_frontmatter(path, fm)
+        state["current_step"] = f"Step {next_num}"
+        write_state(state, path)
         print(f"Advanced to Step {next_num}")
     else:
         print(f"Cannot parse step from: {current}", file=sys.stderr)
@@ -234,14 +188,14 @@ def cmd_fail(args):
     path = find_state_file()
     if not path:
         sys.exit(1)
-    fm = read_frontmatter(path)
-    failures = int(fm.get("consecutive_failures", 0)) + 1
-    fm["consecutive_failures"] = str(failures)
+    state = read_state(path)
+    failures = int(state.get("consecutive_failures", 0)) + 1
+    state["consecutive_failures"] = failures
     if failures >= 3:
-        fm["circuit_breaker"] = "tripped"
-    fm["status"] = "failed"
-    write_frontmatter(path, fm)
-    print(f"Failures: {failures}, Circuit breaker: {fm.get('circuit_breaker', 'off')}")
+        state["circuit_breaker"] = "tripped"
+    state["status"] = "failed"
+    write_state(state, path)
+    print(f"Failures: {failures}, Circuit breaker: {state.get('circuit_breaker', 'off')}")
 
 
 def cmd_reset_fail(args):
@@ -249,10 +203,10 @@ def cmd_reset_fail(args):
     path = find_state_file()
     if not path:
         sys.exit(1)
-    fm = read_frontmatter(path)
-    fm["consecutive_failures"] = "0"
-    fm["circuit_breaker"] = "off"
-    write_frontmatter(path, fm)
+    state = read_state(path)
+    state["consecutive_failures"] = 0
+    state["circuit_breaker"] = "off"
+    write_state(state, path)
     print("Failures reset to 0")
 
 
@@ -261,9 +215,9 @@ def cmd_trip_breaker(args):
     path = find_state_file()
     if not path:
         sys.exit(1)
-    fm = read_frontmatter(path)
-    fm["circuit_breaker"] = "tripped"
-    write_frontmatter(path, fm)
+    state = read_state(path)
+    state["circuit_breaker"] = "tripped"
+    write_state(state, path)
     print("Circuit breaker TRIPPED")
 
 
@@ -279,7 +233,7 @@ def cmd_report(args):
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     log_path = Path.cwd() / LOG_FILE
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(log_path, 'a') as f:
+    with open(log_path, "a") as f:
         f.write(f"[{now}] ## Round Report\n")
         f.write(f"[{now}] - Subtask: {subtask}\n")
         f.write(f"[{now}] - Strategy: {strategy}\n")
