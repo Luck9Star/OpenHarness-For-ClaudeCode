@@ -53,12 +53,12 @@ git clone https://github.com/Luck9Star/OpenHarness-For-ClaudeCode ~/.claude/plug
 
 | 参数 | 必填 | 说明 | 示例 |
 |---|---|---|---|
-| `"任务描述"` | 是* | 一句话描述你想让 Agent 完成什么 | `"构建 REST API"` |
-| `--from-plan PATH` | 是* | 从方案/计划文件初始化任务（与任务描述二选一） | `--from-plan plan.md` |
+| `"任务描述"` | 否* | 一句话描述你想让 Agent 完成什么，可与 `--from-plan` 叠加 | `"构建 REST API"` |
+| `--from-plan PATH` | 否* | 从方案/计划文件初始化任务 | `--from-plan plan.md` |
 | `--mode single\|dual` | 否 | 执行模式，默认 `single`（见下方说明） | `--mode dual` |
 | `--verify "指令"` | 否 | 自然语言验证指令，eval-agent 用来判断任务是否完成 | `--verify "确保所有测试通过"` |
 
-> *任务描述和 `--from-plan` 二选一，至少提供一个。
+> *任务描述和 `--from-plan` 至少提供一个。两者都提供时，方案提供结构（步骤、架构），描述补充上下文和约束。
 
 ### 第二步：启动开发循环 `/harness-dev`
 
@@ -179,7 +179,33 @@ Agent 自己规划步骤，自己写代码，但**验证环节由独立的 eval-
 /harness-dev --mode dual --worktree
 ```
 
-## 完整工作流示例
+## 工作流
+
+```mermaid
+flowchart TD
+    A["/harness-start<br/>描述 + --from-plan + --verify"] --> B["生成合约文件<br/>mission.md / playbook.md<br/>eval-criteria.md / progress.md"]
+    B --> C["/harness-dev<br/>启动开发循环"]
+    C --> D{"断路器<br/>是否触发？"}
+    D -- 是 --> STOP["停止，等待人工干预"]
+    D -- 否 --> E{"所有步骤<br/>已完成？"}
+    E -- 是 --> F["输出 LOOP_DONE<br/>循环退出"]
+    E -- 否 --> G["执行当前步骤<br/>Single: 主Agent编码<br/>Dual: 派生dev-agent"]
+    G --> H["eval-agent<br/>Oracle 隔离验证"]
+    H --> I{"验证<br/>通过？"}
+    I -- 是 --> J["步骤前进<br/>失败计数归零"]
+    I -- 否 --> K{"连续失败<br/>>= 3？"}
+    K -- 是 --> L["触发断路器"]
+    L --> D
+    K -- 否 --> M["记录失败原因<br/>自动修复重试"]
+    M --> D
+    J --> D
+
+    style STOP fill:#f66,color:#fff
+    style F fill:#6c6,color:#fff
+    style L fill:#f96,color:#000
+```
+
+**完整文字示例：**
 
 ```
 你在 Claude Code 中输入:

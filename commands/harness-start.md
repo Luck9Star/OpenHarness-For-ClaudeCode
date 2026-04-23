@@ -12,12 +12,17 @@ Initialize a new OpenHarness autonomous development task workspace.
 
 Parse the user's arguments from `$ARGUMENTS`:
 
-- **Task description**: everything before any `--` flags (not needed if `--from-plan` is provided)
+- **Task description**: everything before any `--` flags (can supplement `--from-plan`, see below)
 - **Mode**: `--mode single` (default) or `--mode dual`
 - **Verify instruction**: `--verify "natural language instruction"` (optional) — an AI instruction for the eval-agent to interpret, e.g., `--verify "确保所有测试通过"` or `--verify "API endpoints return correct status codes"`
-- **From plan**: `--from-plan <file-path>` (optional) — use a plan file as the task source instead of a description
+- **From plan**: `--from-plan <file-path>` (optional) — use a plan file as the task source
 
-If no task description and no `--from-plan` is provided, prompt the user:
+**Combination rules:**
+- Description only → use description as the task
+- `--from-plan` only → derive everything from the plan file
+- **Both** → plan provides structure (steps, architecture), description provides supplementary context and clarification. Merge them: plan is the base, description adds scope clarification, priority hints, or constraints the plan doesn't cover.
+
+If neither is provided, prompt the user:
 
 ```
 What task would you like the harness to execute? Describe it in one sentence.
@@ -40,8 +45,11 @@ Then proceed with the init workflow.
      - Implementation steps → playbook steps
      - Architecture/design → mission boundaries and output definition
      - Verification/validation criteria → eval-criteria.md content
+   - **If a task description was also provided**, merge it with the plan:
+     - Plan provides the structural foundation (steps, architecture, components)
+     - Description supplements with scope clarification, priority hints, additional constraints
+     - Incorporate description into mission.md objective and playbook context
    - If `--verify` is not also provided, derive a reasonable verify instruction from the plan
-   - Use the plan content to generate concrete, specific workspace files
    - Continue to step 3
 
 3. **Load the harness-init skill**: read `${CLAUDE_PLUGIN_ROOT}/skills/harness-init/SKILL.md`
@@ -67,3 +75,4 @@ Harness workspace is ready. Start the development loop with /harness-dev
 - The verify instruction is a natural language AI instruction (not a shell command). It tells the eval-agent what to check, in plain language.
 - Always run state-manager.py as the last step — it creates the `.claude/` directory and state file.
 - When using `--from-plan`, faithfully reflect the plan's structure. Do not invent steps not in the plan or omit steps that are.
+- When both description and `--from-plan` are provided, the plan is the base. The description adds supplementary context — it should refine, not contradict.

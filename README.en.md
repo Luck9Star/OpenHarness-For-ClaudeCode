@@ -58,12 +58,12 @@ Tell Claude Code what you want done. The plugin auto-generates contract files.
 
 | Parameter | Required | Description | Example |
 |---|---|---|---|
-| `"task description"` | Yes* | One-sentence description of what you want | `"Build REST API"` |
-| `--from-plan PATH` | Yes* | Initialize from a plan/design file (alternative to description) | `--from-plan plan.md` |
+| `"task description"` | No* | One-sentence description of what you want, composable with `--from-plan` | `"Build REST API"` |
+| `--from-plan PATH` | No* | Initialize from a plan/design file | `--from-plan plan.md` |
 | `--mode single\|dual` | No | Execution mode, default `single` | `--mode dual` |
 | `--verify "instruction"` | No | Natural language verification instruction for eval-agent | `--verify "Ensure all tests pass"` |
 
-> *Task description and `--from-plan` are alternatives — provide at least one.
+> *At least one of task description or `--from-plan` is required. When both are provided, the plan provides structure (steps, architecture) and the description adds supplementary context and constraints.
 
 ### Step 2: Start Development Loop `/harness-dev`
 
@@ -169,7 +169,33 @@ openharness-cc/
   templates/       4 scaffold templates (mission, playbook, eval-criteria, progress)
 ```
 
-## Core Workflow
+## Workflow
+
+```mermaid
+flowchart TD
+    A["/harness-start<br/>description + --from-plan + --verify"] --> B["Generate contract files<br/>mission.md / playbook.md<br/>eval-criteria.md / progress.md"]
+    B --> C["/harness-dev<br/>start dev loop"]
+    C --> D{"Circuit breaker<br/>tripped?"}
+    D -- yes --> STOP["Stop — manual intervention"]
+    D -- no --> E{"All steps<br/>complete?"}
+    E -- yes --> F["Output LOOP_DONE<br/>loop exits"]
+    E -- no --> G["Execute current step<br/>Single: main agent codes<br/>Dual: spawn dev-agent"]
+    G --> H["eval-agent<br/>oracle validation"]
+    H --> I{"Validation<br/>passed?"}
+    I -- yes --> J["Advance step<br/>reset failure count"]
+    I -- no --> K{"Consecutive<br/>failures >= 3?"}
+    K -- yes --> L["Trip circuit breaker"]
+    L --> D
+    K -- no --> M["Log failure reason<br/>auto-fix and retry"]
+    M --> D
+    J --> D
+
+    style STOP fill:#f66,color:#fff
+    style F fill:#6c6,color:#fff
+    style L fill:#f96,color:#000
+```
+
+### Core Flow (text)
 
 ```
 /harness-start "task description" --verify "instruction"
