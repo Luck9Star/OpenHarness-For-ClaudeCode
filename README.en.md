@@ -12,7 +12,9 @@ Turns Claude Code into a 24/7 autonomous development worker through **mechanical
 - **Oracle-isolated validation** — an independent agent validates your work; you cannot self-certify
 - **Circuit breaker** — auto-stops after 3 consecutive failures
 - **Three-layer memory** — state pointer (<2KB) + knowledge files + execution stream
+- **Dynamic workflow** — automatically generates develop/review/fix cycles based on task needs
 - **Switchable execution modes** — single (plan+code) or dual (plan → spawn coder agent)
+- **Skill injection** — specify skills for the dev-agent to load on demand
 - **`/loop` integration** — recurring execution without external cron
 
 ## Quick Start
@@ -52,6 +54,9 @@ Tell Claude Code what you want done. The plugin auto-generates contract files.
 
 # Initialize from a plan file (e.g., superpowers output)
 /harness-start --from-plan docs/superpowers/specs/my-feature-design.md --mode dual
+
+# Specify skills for the dev-agent
+/harness-start "Add React components" --skills "tdd,react-patterns" --verify "All tests pass"
 ```
 
 **Parameters:**
@@ -62,8 +67,40 @@ Tell Claude Code what you want done. The plugin auto-generates contract files.
 | `--from-plan PATH` | No* | Initialize from a plan/design file | `--from-plan plan.md` |
 | `--mode single\|dual` | No | Execution mode, default `single` | `--mode dual` |
 | `--verify "instruction"` | No | Natural language verification instruction for eval-agent | `--verify "Ensure all tests pass"` |
+| `--skills "s1,s2"` | No | Comma-separated skill names for dev-agent to load | `--skills "tdd,react-patterns"` |
 
 > *At least one of task description or `--from-plan` is required. When both are provided, the plan provides structure (steps, architecture) and the description adds supplementary context and constraints.
+
+### Dynamic Workflow Generation
+
+During initialization, the AI asks targeted quality questions based on task complexity:
+
+1. **Code review?** — How many rounds? (0 = no review, 1 = one round, 2+ = multiple review-fix cycles)
+2. **TDD?** — Write tests before implementation?
+3. **Auto-fix on failure?** — Or stop and wait for your confirmation?
+
+The AI dynamically generates the playbook with typed steps:
+
+| Step Type | Description |
+|---|---|
+| `implement` | Write/create/modify code |
+| `review` | Spawn review-agent for read-only code review |
+| `fix` | Apply fixes based on review feedback |
+| `verify` | Spawn eval-agent for independent validation |
+
+**Example: User requests "strict review, 2 rounds"**
+
+```
+Step 1 (implement) → Step 2 (review) → Step 3 (fix) → Step 4 (review) → Step 5 (fix) → Step 6 (verify)
+```
+
+**Example: User requests "quick, no review"**
+
+```
+Step 1 (implement) → Step 2 (implement) → Step 3 (verify)
+```
+
+For simple tasks (e.g., config changes), the AI auto-detects simplicity and generates minimal steps without asking.
 
 ### Step 2: Start Development Loop `/harness-dev`
 
@@ -123,6 +160,20 @@ Modify an existing task's configuration at any time:
 
 Without `--verify`, the eval-agent still performs structural validation based on `eval-criteria.md` (checking file existence, content plausibility), but lacks targeted semantic verification.
 
+## `--skills` Skill Injection
+
+`--skills` lets you specify skills the dev-agent loads during development to get domain-specific guidance.
+
+```bash
+# TDD + React development
+/harness-start "Add user list component" --skills "tdd,react-patterns"
+
+# Framework best practices
+/harness-start "Build API endpoints" --skills "express-best-practices,rest-api-design"
+```
+
+The dev-agent uses the Skill tool to load each named skill's SKILL.md content, then follows the skill's guidance during implementation. Skill names correspond to skills in installed plugins.
+
 ## Execution Modes
 
 ### Single Mode (default)
@@ -157,56 +208,72 @@ Adds `--worktree` flag to dual mode so dev-agent works in an isolated git branch
 /harness-dev --mode dual --worktree
 ```
 
-## Architecture
-
-```
-openharness-cc/
-  skills/          5 behavioral skills (core, init, execute, eval, dream)
-  commands/        4 slash commands (start, dev, status, edit)
-  agents/          2 autonomous agents (dev-agent, eval-agent)
-  hooks/           3 event hooks (SessionStart, PreToolUse, Stop)
-  scripts/         4 utility scripts (state-manager, eval-check, setup-loop, cleanup)
-  templates/       4 scaffold templates (mission, playbook, eval-criteria, progress)
-```
-
 ## Workflow
 
 ```mermaid
 flowchart TD
-    A["/harness-start<br/>description + --from-plan + --verify"] --> B["Generate contract files<br/>mission.md / playbook.md<br/>eval-criteria.md / progress.md"]
-    B --> C["/harness-dev<br/>start dev loop"]
-    C --> D{"Circuit breaker<br/>tripped?"}
-    D -- yes --> STOP["Stop — manual intervention"]
-    D -- no --> E{"All steps<br/>complete?"}
-    E -- yes --> F["Output LOOP_DONE<br/>loop exits"]
-    E -- no --> G["Execute current step<br/>Single: main agent codes<br/>Dual: spawn dev-agent"]
-    G --> H["eval-agent<br/>oracle validation"]
-    H --> I{"Validation<br/>passed?"}
-    I -- yes --> J["Advance step<br/>reset failure count"]
-    I -- no --> K{"Consecutive<br/>failures >= 3?"}
-    K -- yes --> L["Trip circuit breaker"]
-    L --> D
-    K -- no --> M["Log failure reason<br/>auto-fix and retry"]
-    M --> D
-    J --> D
+    A["/harness-start<br/>description + --from-plan + --verify + --skills"] --> B["Quality preference questions<br/>review rounds / TDD / auto-fix"]
+    B --> C["Dynamic playbook generation<br/>implement / review / fix / verify steps"]
+    C --> D["Generate contract files<br/>mission.md / playbook.md<br/>eval-criteria.md / progress.md"]
+    D --> E["/harness-dev<br/>start dev loop"]
+    E --> F{"Circuit breaker<br/>tripped?"}
+    F -- yes --> STOP["Stop — manual intervention"]
+    F -- no --> G{"All steps<br/>complete?"}
+    G -- yes --> H["Output LOOP_DONE<br/>loop exits"]
+    G -- no --> H2{"Step type?"}
+    H2 -- implement --> I["Execute code<br/>Single: main agent codes<br/>Dual: spawn dev-agent"]
+    H2 -- review --> J["Spawn review-agent<br/>read-only code review"]
+    H2 -- fix --> K["Read review report<br/>fix issues"]
+    H2 -- verify --> L["Spawn eval-agent<br/>oracle validation"]
+    I --> L
+    J --> M{"Review<br/>passed?"}
+    M -- yes --> F
+    M -- no --> K
+    K --> F
+    L --> N{"Validation<br/>passed?"}
+    N -- yes --> O["Advance step<br/>reset failure count"]
+    N -- no --> P{"Consecutive<br/>failures >= 3?"}
+    P -- yes --> Q["Trip circuit breaker"]
+    Q --> F
+    P -- no --> R["Log failure reason<br/>auto-fix and retry"]
+    R --> F
+    O --> F
 
     style STOP fill:#f66,color:#fff
-    style F fill:#6c6,color:#fff
-    style L fill:#f96,color:#000
+    style H fill:#6c6,color:#fff
+    style Q fill:#f96,color:#000
 ```
 
 ### Core Flow (text)
 
 ```
 /harness-start "task description" --verify "instruction"
-  → Create mission.md (contract) + playbook.md (steps) + eval-criteria.md (validation)
-  → Initialize .claude/harness-state.local.md (state file)
+  → AI asks quality preferences (review rounds, TDD, auto-fix)
+  → Dynamically generate playbook with typed steps
+  → Create mission.md + playbook.md + eval-criteria.md
+  → Initialize .claude/harness-state.local.md
 
 /harness-dev
   → Stop Hook drives each loop iteration
-  → Each round: read state → execute playbook step → spawn eval-agent → update state
+  → Each round: read state → execute step by type → update state
+  → implement step: code (single) or spawn dev-agent (dual)
+  → review step: spawn review-agent (read-only)
+  → fix step: apply fixes from review report
+  → verify step: spawn eval-agent (oracle validation)
   → Consecutive failures >= 3 → circuit breaker trips, execution halts
   → All done → <promise>LOOP_DONE</promise> → loop exits
+```
+
+## Architecture
+
+```
+openharness-cc/
+  skills/          5 behavioral skills (core, init, execute, eval, dream)
+  commands/        4 slash commands (start, dev, status, edit)
+  agents/          3 autonomous agents (dev-agent, eval-agent, review-agent)
+  hooks/           3 event hooks (SessionStart, PreToolUse, Stop)
+  scripts/         4 utility scripts (state-manager, eval-check, setup-loop, cleanup)
+  templates/       4 scaffold templates (mission, playbook, eval-criteria, progress)
 ```
 
 ## OpenHarness Mapping

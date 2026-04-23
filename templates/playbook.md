@@ -6,6 +6,7 @@
 
 ### Step 1: [Step Name]
 
+**Type**: `[implement|review|fix|verify]`
 **What to do**:
 ```
 [Specific operation description]
@@ -25,6 +26,7 @@
 
 ### Step 2: [Step Name]
 
+**Type**: `[implement|review|fix|verify]`
 **What to do**:
 ```
 [Specific operation description]

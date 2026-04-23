@@ -88,6 +88,7 @@ def cmd_init(args):
     verify_instruction = ""
     max_iterations = 0
     worktree = "off"
+    skills = ""
 
     i = 1
     while i < len(args):
@@ -103,6 +104,9 @@ def cmd_init(args):
         elif args[i] == "--worktree":
             worktree = "on"
             i += 1
+        elif args[i] == "--skills" and i + 1 < len(args):
+            skills = args[i + 1]
+            i += 2
         else:
             i += 1
 
@@ -111,6 +115,8 @@ def cmd_init(args):
     state_path = state_dir / "harness-state.local.md"
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    skills_display = skills if skills else "none"
 
     content = f'''---
 status: idle
@@ -124,6 +130,7 @@ iteration: 0
 max_iterations: {max_iterations}
 session_id: ""
 verify_instruction: "{verify_instruction}"
+skills: "{skills}"
 last_execution_time: "{now}"
 ---
 
@@ -138,6 +145,7 @@ last_execution_time: "{now}"
 | Worktree Isolation | `{worktree}` |
 | Current Status | `idle` |
 | Verify Instruction | `{verify_instruction}` |
+| Skills | `{skills_display}` |
 | Last Execution | `{now}` |
 | Total Executions | `0` |
 | Consecutive Failures | `0` |

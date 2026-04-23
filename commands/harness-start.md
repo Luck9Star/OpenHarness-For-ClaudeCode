@@ -1,6 +1,6 @@
 ---
 description: "Initialize a new OpenHarness autonomous development task"
-argument-hint: "TASK_DESCRIPTION [--mode single|dual] [--verify INSTRUCTION] [--from-plan PATH]"
+argument-hint: "TASK_DESCRIPTION [--mode single|dual] [--verify INSTRUCTION] [--from-plan PATH] [--skills SKILL1,SKILL2]"
 allowed-tools: ["Bash", "Read", "Write", "Edit"]
 ---
 
@@ -15,6 +15,7 @@ Parse the user's arguments from `$ARGUMENTS`:
 - **Task description**: everything before any `--` flags (can supplement `--from-plan`, see below)
 - **Mode**: `--mode single` (default) or `--mode dual`
 - **Verify instruction**: `--verify "natural language instruction"` (optional) — an AI instruction for the eval-agent to interpret, e.g., `--verify "确保所有测试通过"` or `--verify "API endpoints return correct status codes"`
+- **Skills**: `--skills "skill1,skill2"` (optional) — comma-separated list of skill names for the dev-agent to load during implementation
 - **From plan**: `--from-plan <file-path>` (optional) — use a plan file as the task source
 
 **Combination rules:**
@@ -36,6 +37,7 @@ Then proceed with the init workflow.
    - Extract task description (text before any flags)
    - Extract `--mode` value (default: `single`)
    - Extract `--verify` value (default: empty)
+   - Extract `--skills` value (comma-separated skill names, optional)
    - Extract `--from-plan` value (file path, optional)
 
 2. **If `--from-plan` is provided**:
@@ -59,7 +61,7 @@ Then proceed with the init workflow.
    - Generate the task name from the description (or plan title)
    - Write mission.md, playbook.md, eval-criteria.md, progress.md — all fully filled, no placeholders
    - If using `--from-plan`, the playbook should mirror the plan's implementation sequence
-   - Run `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py init <task-name> --mode <mode> --verify "<verify-instruction>"`
+   - Run `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py init <task-name> --mode <mode> --verify "<verify-instruction>" --skills "<skills>"`
    - Verify all files are created correctly
 
 5. **After initialization**, report the ready state and suggest:

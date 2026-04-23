@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Initialize OpenHarness loop state file
-# Usage: setup-harness-loop.sh <task-name> [--mode single|dual] [--worktree] [--verify INSTRUCTION] [--max-iterations N]
+# Usage: setup-harness-loop.sh <task-name> [--mode single|dual] [--worktree] [--verify INSTRUCTION] [--max-iterations N] [--skills SKILL1,SKILL2]
 
 set -euo pipefail
 
@@ -15,9 +15,10 @@ EXECUTION_MODE="single"
 WORKTREE_FLAG=""
 VERIFY_INSTRUCTION=""
 MAX_ITERATIONS=0
+SKILLS=""
 
 if [[ $# -lt 1 ]]; then
-  echo "Usage: setup-harness-loop.sh <task-name> [--mode single|dual] [--worktree] [--verify INSTRUCTION] [--max-iterations N]" >&2
+  echo "Usage: setup-harness-loop.sh <task-name> [--mode single|dual] [--worktree] [--verify INSTRUCTION] [--max-iterations N] [--skills SKILL1,SKILL2]" >&2
   exit 1
 fi
 
@@ -58,6 +59,14 @@ while [[ $# -gt 0 ]]; do
       MAX_ITERATIONS="$2"
       shift 2
       ;;
+    --skills)
+      if [[ $# -lt 2 ]]; then
+        echo "Error: --skills requires an argument (comma-separated skill names)" >&2
+        exit 1
+      fi
+      SKILLS="$2"
+      shift 2
+      ;;
     *)
       echo "Warning: Unknown argument: $1" >&2
       shift
@@ -74,6 +83,9 @@ if [[ -n "$WORKTREE_FLAG" ]]; then
 fi
 if [[ -n "$VERIFY_INSTRUCTION" ]]; then
   INIT_ARGS+=(--verify "$VERIFY_INSTRUCTION")
+fi
+if [[ -n "$SKILLS" ]]; then
+  INIT_ARGS+=(--skills "$SKILLS")
 fi
 INIT_ARGS+=(--max-iterations "$MAX_ITERATIONS")
 
@@ -96,6 +108,7 @@ if [[ "$EXECUTION_MODE" == "dual" ]]; then
   echo "  Worktree Isolation: ${WORKTREE_FLAG:+yes}${WORKTREE_FLAG:-no}"
 fi
 echo "  Verify Instruction: ${VERIFY_INSTRUCTION:-(none)}"
+echo "  Skills:            ${SKILLS:-(none)}"
 echo "  Max Iterations:     ${MAX_ITERATIONS:-0 (infinite)}"
 echo "  State File:         $(pwd)/$STATE_FILE"
 echo ""

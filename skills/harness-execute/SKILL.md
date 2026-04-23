@@ -46,17 +46,23 @@ Only load `knowledge/*.md` files on demand if the current step references them.
 
 ### 5. Execute Current Step
 
-Check `execution_mode` in the state file:
+First, check the current playbook step's **Type** field to determine how to execute it:
 
-#### Single Mode (`execution_mode: single`)
+#### type: implement (or no type field — backwards compatible)
+
+Default behavior. Check `execution_mode` in the state file:
+
+##### Single Mode (`execution_mode: single`)
 
 You plan AND code directly. Use Claude Code tools (Read, Write, Edit, Bash, Grep) to execute the current playbook step. Work inside the project workspace.
+
+If the `skills` field is set in the state file, load each specified skill using the Skill tool before starting step execution.
 
 After completing the step:
 - Log what was done: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Completed <step description>"`
 - Run validation (see step 6)
 
-#### Dual Mode (`execution_mode: dual`)
+##### Dual Mode (`execution_mode: dual`)
 
 You plan only. Delegate coding to a sub-agent. Check `worktree` field in state file for isolation mode:
 
@@ -70,6 +76,7 @@ Spawn `harness-dev-agent` as a regular subagent — it works in the same directo
    - File paths to read and modify
    - Constraints from mission.md (especially Prohibited Operations)
    - The eval criteria this step must satisfy
+   - The skills to load (if `skills` field is set in state file) — format as: "Use skills: skill1, skill2"
 3. Spawn `harness-dev-agent` WITHOUT worktree isolation
 4. Wait for the agent to complete
 5. Log the delegation: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Delegated <step> to harness-dev-agent (in-place)"`
@@ -84,6 +91,55 @@ Spawn `harness-dev-agent` with git worktree isolation — code changes happen on
 4. Wait for the agent to complete
 5. Merge the worktree changes back to the main branch
 6. Log the delegation: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Delegated <step> to harness-dev-agent in worktree"`
+
+#### type: review
+
+ALWAYS spawn `harness-review-agent` — read-only code review, regardless of execution mode (both single and dual).
+
+1. Read the current step description from the playbook to understand what was implemented
+2. Spawn `harness-review-agent` with:
+   - The step description and scope
+   - Instructions to examine the relevant files and produce a review report
+3. The review agent writes its findings to `logs/review_report.json` — it does NOT modify any source files
+4. After the review agent completes, read `logs/review_report.json` to check the verdict:
+   - `pass` — log and proceed to the next step
+   - `conditional-pass` — log warnings, proceed but note issues for the next fix step
+   - `fail` — log critical issues, the next step (expected to be a `fix` step) will address them
+5. Log the result: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Review completed: <overall verdict>"`
+6. Skip validation (step 6) for review steps — proceed directly to step 7/8 state updates
+
+#### type: fix
+
+Read the review report from the previous review step, then apply fixes.
+
+1. Read `logs/review_report.json` to get the list of issues from the review
+2. If the report is missing or the overall verdict was `pass`, skip this step — log and advance
+3. Extract the issue list and format fix instructions
+
+Then dispatch based on execution mode:
+
+- **Single mode**: Fix the issues yourself. Use Read, Edit, Write, Bash to address each issue from the report. Work through critical and major issues first, then minor ones.
+- **Dual mode**: Spawn `harness-dev-agent` with a prompt that includes:
+  - The full list of issues from `logs/review_report.json`
+  - Specific file paths, line numbers, and suggested fixes for each issue
+  - Instructions to address critical and major issues, then minor ones
+
+After fixes are applied:
+- Log what was fixed: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Applied fixes for <N> issues from review"`
+- Run validation (see step 6) if the step has completion criteria
+
+#### type: verify
+
+Spawn `harness-eval-agent` for independent validation — regardless of execution mode.
+
+1. Read the current step description and eval criteria
+2. Spawn `harness-eval-agent` with:
+   - The eval criteria from `eval-criteria.md`
+   - The current step description
+   - Instructions to independently verify without reading implementation details
+3. The eval-agent reports PASS or FAIL
+4. Log the result: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Verify: <PASS or FAIL>"`
+5. Proceed to step 6 for additional verify_instruction handling, or directly to step 7/8
 
 ### 6. Run Validation
 

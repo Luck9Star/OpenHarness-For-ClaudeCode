@@ -12,7 +12,9 @@
 - **Oracle 隔离验证** — 独立 agent 验证你的工作，你不能自我认证
 - **断路器保护** — 连续 3 次失败后自动停止
 - **三层记忆** — 状态指针 (<2KB) + 知识文件 + 执行流日志
+- **动态工作流** — 根据任务需求自动生成开发/审查/修复循环
 - **可切换执行模式** — single（规划+编码）或 dual（规划 → 派生编码 agent）
+- **Skill 注入** — 指定 dev-agent 加载的技能，按需获取领域知识
 - **`/loop` 集成** — 无需外部 cron，使用 Claude Code 内置循环
 
 ## 安装
@@ -39,6 +41,9 @@ git clone https://github.com/Luck9Star/OpenHarness-For-ClaudeCode ~/.claude/plug
 
 # 从方案文件初始化（如 superpowers 产出的计划）
 /harness-start --from-plan docs/superpowers/specs/my-feature-design.md --mode dual
+
+# 指定 dev-agent 使用的技能
+/harness-start "添加 React 组件" --skills "tdd,react-patterns" --verify "所有测试通过"
 ```
 
 **这条命令会做什么：**
@@ -57,8 +62,40 @@ git clone https://github.com/Luck9Star/OpenHarness-For-ClaudeCode ~/.claude/plug
 | `--from-plan PATH` | 否* | 从方案/计划文件初始化任务 | `--from-plan plan.md` |
 | `--mode single\|dual` | 否 | 执行模式，默认 `single`（见下方说明） | `--mode dual` |
 | `--verify "指令"` | 否 | 自然语言验证指令，eval-agent 用来判断任务是否完成 | `--verify "确保所有测试通过"` |
+| `--skills "s1,s2"` | 否 | dev-agent 按需加载的技能名称，逗号分隔 | `--skills "tdd,react-patterns"` |
 
 > *任务描述和 `--from-plan` 至少提供一个。两者都提供时，方案提供结构（步骤、架构），描述补充上下文和约束。
+
+### 动态工作流生成
+
+初始化时，AI 会根据任务复杂度询问质量偏好：
+
+1. **需要代码审查吗？** — 审查几轮？（0 = 不审查，1 = 审查一次，2+ = 多轮审查-修复循环）
+2. **需要 TDD 吗？** — 先写测试再实现
+3. **验证失败后自动修复？** — 还是停下来等你确认
+
+AI 根据回答**动态生成 playbook 步骤**，每个步骤带有类型标记：
+
+| 步骤类型 | 说明 |
+|---|---|
+| `implement` | 编写/创建/修改代码 |
+| `review` | 派生 review-agent 进行只读代码审查 |
+| `fix` | 根据审查意见修复问题 |
+| `verify` | 派生 eval-agent 进行独立验证 |
+
+**示例：用户要求"严格审查，2 轮"**
+
+```
+Step 1 (implement) → Step 2 (review) → Step 3 (fix) → Step 4 (review) → Step 5 (fix) → Step 6 (verify)
+```
+
+**示例：用户要求"快速实现，不需要审查"**
+
+```
+Step 1 (implement) → Step 2 (implement) → Step 3 (verify)
+```
+
+简单任务（如改配置）AI 会自动跳过质量提问，生成最简步骤。
 
 ### 第二步：启动开发循环 `/harness-dev`
 
@@ -67,18 +104,6 @@ Agent 开始自主工作，循环执行直到任务完成。
 ```bash
 /harness-dev
 ```
-
-**这条命令会做什么：**
-
-1. 读取 `mission.md` 了解任务目标
-2. 读取 `playbook.md` 按步骤执行
-3. 每完成一个步骤：
-   - 派生独立的 eval-agent 做 Oracle 隔离验证
-   - eval-agent 根据 `--verify` 指令（自然语言）独立判断
-   - 验证通过 → 进入下一步
-   - 验证失败 → 读取错误，自动修复，重试
-4. 连续失败 3 次 → **断路器触发**，自动停止，防止无限循环浪费 token
-5. 全部步骤完成且验证通过 → 循环退出
 
 **参数说明：**
 
@@ -145,6 +170,20 @@ Agent 开始自主工作，循环执行直到任务完成。
 
 如果不指定 `--verify`，eval-agent 仍会根据 `eval-criteria.md` 做结构性验证（检查文件是否存在、内容是否合理等），但缺少针对性的语义验证。
 
+## `--skills` 技能注入
+
+`--skills` 让 dev-agent 在开发过程中按需加载指定技能，获取领域知识指导。
+
+```bash
+# TDD + React 开发
+/harness-start "添加用户列表组件" --skills "tdd,react-patterns"
+
+# 使用特定框架的最佳实践
+/harness-start "构建 API 端点" --skills "express-best-practices,rest-api-design"
+```
+
+Dev-agent 收到技能名称后，通过 Skill 工具加载对应的 SKILL.md 内容，在实现过程中遵循技能指导。技能名称对应已安装插件中的 skill 名称。
+
 ## 执行模式
 
 ### Single 模式（默认）
@@ -183,26 +222,36 @@ Agent 自己规划步骤，自己写代码，但**验证环节由独立的 eval-
 
 ```mermaid
 flowchart TD
-    A["/harness-start<br/>描述 + --from-plan + --verify"] --> B["生成合约文件<br/>mission.md / playbook.md<br/>eval-criteria.md / progress.md"]
-    B --> C["/harness-dev<br/>启动开发循环"]
-    C --> D{"断路器<br/>是否触发？"}
-    D -- 是 --> STOP["停止，等待人工干预"]
-    D -- 否 --> E{"所有步骤<br/>已完成？"}
-    E -- 是 --> F["输出 LOOP_DONE<br/>循环退出"]
-    E -- 否 --> G["执行当前步骤<br/>Single: 主Agent编码<br/>Dual: 派生dev-agent"]
-    G --> H["eval-agent<br/>Oracle 隔离验证"]
-    H --> I{"验证<br/>通过？"}
-    I -- 是 --> J["步骤前进<br/>失败计数归零"]
-    I -- 否 --> K{"连续失败<br/>>= 3？"}
-    K -- 是 --> L["触发断路器"]
-    L --> D
-    K -- 否 --> M["记录失败原因<br/>自动修复重试"]
-    M --> D
-    J --> D
+    A["/harness-start<br/>描述 + --from-plan + --verify + --skills"] --> B["质量偏好提问<br/>审查轮数 / TDD / 自动修复"]
+    B --> C["动态生成 Playbook<br/>implement / review / fix / verify 步骤"]
+    C --> D["生成合约文件<br/>mission.md / playbook.md<br/>eval-criteria.md / progress.md"]
+    D --> E["/harness-dev<br/>启动开发循环"]
+    E --> F{"断路器<br/>是否触发？"}
+    F -- 是 --> STOP["停止，等待人工干预"]
+    F -- 否 --> G{"所有步骤<br/>已完成？"}
+    G -- 是 --> H["输出 LOOP_DONE<br/>循环退出"]
+    G -- 否 --> H2{"步骤类型？"}
+    H2 -- implement --> I["执行代码<br/>Single: 主Agent编码<br/>Dual: 派生dev-agent"]
+    H2 -- review --> J["派生 review-agent<br/>只读代码审查"]
+    H2 -- fix --> K["读取审查报告<br/>修复问题"]
+    H2 -- verify --> L["派生 eval-agent<br/>Oracle 隔离验证"]
+    I --> L
+    J --> M{"审查<br/>通过？"}
+    M -- 是 --> F
+    M -- 否 --> K
+    K --> F
+    L --> N{"验证<br/>通过？"}
+    N -- 是 --> O["步骤前进<br/>失败计数归零"]
+    N -- 否 --> P{"连续失败<br/>>= 3？"}
+    P -- 是 --> Q["触发断路器"]
+    Q --> F
+    P -- 否 --> R["记录失败原因<br/>自动修复重试"]
+    R --> F
+    O --> F
 
     style STOP fill:#f66,color:#fff
-    style F fill:#6c6,color:#fff
-    style L fill:#f96,color:#000
+    style H fill:#6c6,color:#fff
+    style Q fill:#f96,color:#000
 ```
 
 **完整文字示例：**
@@ -211,30 +260,34 @@ flowchart TD
 你在 Claude Code 中输入:
   /harness-start "为 Express 应用添加 JWT 认证中间件" --verify "确保所有测试通过"
 
-插件自动生成:
+AI 质量偏好提问:
+  "需要代码审查吗？几轮？" → "2轮"
+  "需要 TDD 吗？" → "是"
+  "验证失败自动修复？" → "是"
+
+插件动态生成:
   mission.md      → 定义目标：实现 JWT 认证，所有测试通过
-  playbook.md     → 步骤：1.安装依赖 2.写中间件 3.写路由 4.写测试
+  playbook.md     → 步骤：
+    Step 1 (verify)    → 编写测试用例
+    Step 2 (implement) → 实现 auth.middleware.js
+    Step 3 (review)    → review-agent 审查代码质量
+    Step 4 (fix)       → 根据审查意见修复
+    Step 5 (review)    → 第二轮审查
+    Step 6 (fix)       → 根据第二轮意见修复
+    Step 7 (verify)    → eval-agent 独立验证
   eval-criteria.md → 验证：测试通过、中间件文件存在、路由受保护
   harness-state.local.md → 状态：idle, Step 1
 
 你启动循环:
   /harness-dev
 
-第1轮循环:
-  → 读状态文件: Step 1
-  → 执行: 安装 jsonwebtoken 等依赖
-  → eval-agent 验证: 所有测试通过 → PASS
-  → 状态更新: Step 1 完成，进入 Step 2
-
-第2轮循环:
-  → 读状态文件: Step 2
-  → 执行: 编写 auth.middleware.js
-  → eval-agent 验证: 测试失败 → FAIL (缺少测试用例)
-  → 自动修复: 补充测试
-  → eval-agent 验证: 所有测试通过 → PASS
-  → 状态更新: Step 2 完成，进入 Step 3
-
-...（自动继续直到所有步骤完成）
+第1轮: Step 1 (verify) → 编写测试用例 → eval 验证通过 → Step 1 完成
+第2轮: Step 2 (implement) → 实现 auth.middleware.js → eval 验证通过
+第3轮: Step 3 (review) → review-agent 审查 → 发现 2 个 major 问题
+第4轮: Step 4 (fix) → 修复审查发现的问题 → eval 验证通过
+第5轮: Step 5 (review) → review-agent 二次审查 → 通过
+第6轮: Step 6 (fix) → 无需修复，跳过 → 继续
+第7轮: Step 7 (verify) → eval-agent 最终验证 → 全部通过
 
 最终:
   → 所有步骤完成 + eval-agent 确认验证通过
@@ -257,7 +310,7 @@ flowchart TD
 openharness-cc/
   skills/          5 个行为技能（core, init, execute, eval, dream）
   commands/        4 个斜杠命令（start, dev, status, edit）
-  agents/          2 个自主 agent（dev-agent, eval-agent）
+  agents/          3 个自主 agent（dev-agent, eval-agent, review-agent）
   hooks/           3 个事件 hook（SessionStart, PreToolUse, Stop）
   scripts/         4 个工具脚本（state-manager, eval-check, setup-loop, cleanup）
   templates/       4 个脚手架模板（mission, playbook, eval-criteria, progress）
