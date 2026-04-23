@@ -61,19 +61,7 @@ If no flags are provided, enter interactive mode:
    ```
 
    ### --mission
-   Read the current `mission.md`. **Do NOT use the Edit or Write tools on mission.md** -- the PreToolUse hook blocks direct edits to this protected file. Instead, use a Bash command with a Python script to update the Mission Objective section (P0-2 fix):
-   ```bash
-   python3 -c "
-   import re
-   from pathlib import Path
-   new_text = '''THE NEW MISSION TEXT'''
-   content = Path('mission.md').read_text()
-   content = re.sub(r'(## Mission Objective\n\n).*?(\n## )', r'\1' + new_text + r'\n\n\2', content, count=1, flags=re.DOTALL)
-   Path('mission.md').write_text(content)
-   print('Mission updated')
-   "
-   ```
-   Replace `THE NEW MISSION TEXT` with the user's input.
+   Read the current `mission.md`, then use the Edit tool to update the Mission Objective section. Replace the content between `## Mission Objective` and the next `##` heading with the user's input.
 
    ### --playbook-step
    Read `playbook.md`, locate step N, replace its content with the provided text. Preserve step numbering and format.
