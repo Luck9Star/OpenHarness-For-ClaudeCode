@@ -1,16 +1,17 @@
 ---
-description: "Modify an existing OpenHarness task (verify instruction, mission, playbook, eval criteria)"
+name: harness-edit
+description: Modify an existing OpenHarness task (verify instruction, mission, playbook, eval criteria). Bypasses PreToolUse hook for protected files. Trigger: /harness-edit.
 argument-hint: "[--verify INSTRUCTION] [--mission TEXT] [--playbook-step N TEXT] [--append-step TEXT] [--mode single|dual]"
 allowed-tools: ["Bash", "Read", "Write", "Edit"]
 ---
 
-# /harness-edit — Modify Existing Harness Task
+# /harness-edit -- Modify Existing Harness Task
 
 Modify an existing OpenHarness task's configuration without reinitializing the workspace.
 
 ## Instructions
 
-Parse the user's arguments from `$ARGUMENTS`. All flags are optional — only specified flags are applied.
+Parse the user's arguments from `$ARGUMENTS`. All flags are optional -- only specified flags are applied.
 
 ### Available Flags
 
@@ -27,7 +28,7 @@ Parse the user's arguments from `$ARGUMENTS`. All flags are optional — only sp
 
 If no flags are provided, enter interactive mode:
 
-1. Read the current task state: `.claude/harness-state.local.md`
+1. Read the current task state: `.claude/harness-state.json`
 2. Read `mission.md` for current mission
 3. Ask the user what they want to modify:
    ```
@@ -47,9 +48,9 @@ If no flags are provided, enter interactive mode:
 
 ## Workflow
 
-1. **Check workspace exists** — verify `.claude/harness-state.local.md` and `mission.md` exist. If not, tell the user to run `/harness-start` first.
+1. **Check workspace exists** -- verify `.claude/harness-state.json` and `mission.md` exist. If not, tell the user to run `/harness-start` first.
 
-2. **Parse arguments** — determine which modifications to apply.
+2. **Parse arguments** -- determine which modifications to apply.
 
 3. **Apply modifications**:
 
@@ -58,10 +59,21 @@ If no flags are provided, enter interactive mode:
    ```bash
    python3 ${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py update verify_instruction "NEW INSTRUCTION"
    ```
-   Also update the `Verify Instruction` row in the state file's System Status table.
 
    ### --mission
-   Read the current `mission.md`, update the Mission Objective section with the new text while preserving the rest. Use the Edit tool to make targeted changes.
+   Read the current `mission.md`. **Do NOT use the Edit or Write tools on mission.md** -- the PreToolUse hook blocks direct edits to this protected file. Instead, use a Bash command with a Python script to update the Mission Objective section (P0-2 fix):
+   ```bash
+   python3 -c "
+   import re
+   from pathlib import Path
+   new_text = '''THE NEW MISSION TEXT'''
+   content = Path('mission.md').read_text()
+   content = re.sub(r'(## Mission Objective\n\n).*?(\n## )', r'\1' + new_text + r'\n\n\2', content, count=1, flags=re.DOTALL)
+   Path('mission.md').write_text(content)
+   print('Mission updated')
+   "
+   ```
+   Replace `THE NEW MISSION TEXT` with the user's input.
 
    ### --playbook-step
    Read `playbook.md`, locate step N, replace its content with the provided text. Preserve step numbering and format.
@@ -76,10 +88,9 @@ If no flags are provided, enter interactive mode:
 
    ### --from-file
    Read the specified file and extract:
-   - Task description / objectives → update mission.md
-   - Implementation steps → update playbook.md
-   - Verification criteria → update eval-criteria.md
-   - If the file is a superpowers plan, parse its sections (architecture, components, implementation sequence) to populate the harness workspace files.
+   - Task description / objectives -> update mission.md
+   - Implementation steps -> update playbook.md
+   - Verification criteria -> update eval-criteria.md
 
 4. **Log the change**:
    ```bash
@@ -98,6 +109,6 @@ If no flags are provided, enter interactive mode:
 ## Important Rules
 
 - Do NOT reset the execution state (status, step, failures) unless the user explicitly requests it.
-- Do NOT modify `progress.md` — it's a log, not editable.
-- Preserve existing content when making targeted updates — don't rewrite entire files for small changes.
+- Do NOT modify `progress.md` -- it's a log, not editable.
+- Preserve existing content when making targeted updates -- don't rewrite entire files for small changes.
 - If the task is currently `running`, warn the user and ask for confirmation before modifying.

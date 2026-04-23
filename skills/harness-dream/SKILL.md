@@ -45,7 +45,7 @@ Scan the `knowledge/` directory (if it exists):
 1. Read each `.md` file in `knowledge/`
 2. Identify duplicate or overlapping content
 3. Merge related files into consolidated entries
-4. Update the Knowledge Index in `.claude/harness-state.local.md` to reflect the new structure
+4. Update the Knowledge Index in `.claude/harness-state.json` to reflect the new structure
 5. Remove empty or placeholder knowledge files
 
 When merging:
@@ -57,16 +57,16 @@ When merging:
 
 Trim stale entries from the state file to keep it under 2KB:
 
-1. Read `.claude/harness-state.local.md`
+1. Read `.claude/harness-state.json`
 2. Check the Knowledge Index section
 3. Remove entries for knowledge files that no longer exist
 4. Remove resolved or obsolete pointers
-5. Ensure the frontmatter stays compact
+5. Ensure the JSON state file stays compact
 
 After pruning, verify the file size:
 
 ```bash
-wc -c .claude/harness-state.local.md
+wc -c .claude/harness-state.json
 ```
 
 If still over 2KB, trim the Knowledge Index table to only the most recent 5 entries and add a note: `> Full index available in knowledge/index.md`
@@ -114,7 +114,7 @@ Write a dream journal entry to `logs/dream_journal.md`:
 
 ### Phase 6: Final Verification
 
-1. Verify `.claude/harness-state.local.md` is under 2KB
+1. Verify `.claude/harness-state.json` is under 2KB
 2. Verify `logs/dream_journal.md` was updated
 3. Verify no knowledge files were deleted without consolidation
 4. Report a summary of what was done

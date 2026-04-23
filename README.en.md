@@ -314,7 +314,7 @@ flowchart TD
   → AI asks quality preferences (review rounds, TDD, auto-fix)
   → Dynamically generate playbook with typed steps
   → Create mission.md + playbook.md + eval-criteria.md
-  → Initialize .claude/harness-state.local.md
+  → Initialize .claude/harness-state.json
 
 /harness-dev
   → Stop Hook drives each loop iteration
@@ -331,8 +331,7 @@ flowchart TD
 
 ```
 openharness-cc/
-  skills/          5 behavioral skills (core, init, execute, eval, dream)
-  commands/        4 slash commands (start, dev, status, edit)
+  skills/          7 behavioral skills (core, start, dev, edit, status, eval, dream)
   agents/          3 autonomous agents (dev-agent, eval-agent, review-agent)
   hooks/           3 event hooks (SessionStart, PreToolUse, Stop)
   scripts/         3 utility scripts (state-manager, setup-loop, cleanup)
@@ -349,7 +348,7 @@ openharness-cc/
 | `harness_boot.py` circuit breaker | Stop hook + state file |
 | `harness_dream.py` | `harness-dream` skill + `/loop 24h` |
 | `harness_linter.py` | PreToolUse hook |
-| `heartbeat.md` | `.claude/harness-state.local.md` |
+| `heartbeat.md` | `.claude/harness-state.json` |
 
 ## License
 

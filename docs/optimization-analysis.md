@@ -18,7 +18,7 @@
 |-------------|-------------------|
 | 任务目标写清"可交付结果" | `mission.md` 包含 Mission Objective、Done Definition、Output Definition |
 | 把任务拆成阶段 | `playbook.md` 动态生成 implement/review/fix/verify 步骤 |
-| 状态外置，不靠上下文 | `harness-state.local.md` + `progress.md` + `logs/execution_stream.log` |
+| 状态外置，不靠上下文 | `harness-state.json` + `progress.md` + `logs/execution_stream.log` |
 | 每轮"做事+验证+记录"闭环 | execute skill 10 步 workflow：读状态→执行→验证→更新状态 |
 | 持续验证，不可自我认证 | Oracle 隔离 eval-agent，独立于主 Agent |
 | 安全边界保护 | 断路器(3次失败停止) + PreToolUse hook 阻止违规写入 |
@@ -105,7 +105,7 @@ if completed_steps / total_steps >= 0.6:
     - 补充 README 和启动说明
 ```
 
-这个约束以 `harness-state.local.md` 的标记位实现，execute skill 读取后调整后续 implement 步骤的执行策略。
+这个约束以 `harness-state.json` 的标记位实现，execute skill 读取后调整后续 implement 步骤的执行策略。
 
 **改动范围：** `skills/harness-execute/SKILL.md` 步骤 9、`scripts/state-manager.py`。
 
@@ -159,7 +159,7 @@ eval-agent 在验证前先检查工具可用性，缺失工具时给出明确提
 
 **文档要求（3.3 节）：** todo.md 维护任务拆解和当前状态。
 
-**当前差距：** "当前待办"信息散落在 playbook.md（全部步骤）和 harness-state.local.md（当前步骤序号）。没有独立的"当前阶段待办清单"。
+**当前差距：** "当前待办"信息散落在 playbook.md（全部步骤）和 harness-state.json（当前步骤序号）。没有独立的"当前阶段待办清单"。
 
 **优化方案：** 每次 step-advance 时，自动从 playbook.md 提取剩余步骤生成/更新 `todo.md`：
 

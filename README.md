@@ -48,7 +48,7 @@ git clone https://github.com/Luck9Star/OpenHarness-For-ClaudeCode ~/.claude/plug
 
 **这条命令会做什么：**
 
-1. 在当前项目目录下创建 `.claude/harness-state.local.md`（状态文件）
+1. 在当前项目目录下创建 `.claude/harness-state.json`（状态文件）
 2. 生成 `mission.md` — 任务合约，定义"做什么"和"什么算完成"
 3. 生成 `playbook.md` — 执行步骤，Agent 按步骤执行
 4. 生成 `eval-criteria.md` — 验证标准，每步完成后外部验证
@@ -337,7 +337,7 @@ AI 质量偏好提问:
     Step 6 (fix)       → 根据第二轮意见修复
     Step 7 (verify)    → eval-agent 独立验证
   eval-criteria.md → 验证：测试通过、中间件文件存在、路由受保护
-  harness-state.local.md → 状态：idle, Step 1
+  harness-state.json → 状态：idle, Step 1
 
 你启动循环:
   /harness-dev
@@ -369,8 +369,7 @@ AI 质量偏好提问:
 
 ```
 openharness-cc/
-  skills/          5 个行为技能（core, init, execute, eval, dream）
-  commands/        4 个斜杠命令（start, dev, status, edit）
+  skills/          7 个行为技能（core, start, dev, edit, status, eval, dream）
   agents/          3 个自主 agent（dev-agent, eval-agent, review-agent）
   hooks/           3 个事件 hook（SessionStart, PreToolUse, Stop）
   scripts/         3 个工具脚本（state-manager, setup-loop, cleanup）
@@ -387,7 +386,7 @@ openharness-cc/
 | `harness_boot.py` 断路器 | Stop hook + 状态文件 |
 | `harness_dream.py` | `harness-dream` skill + `/loop 24h` |
 | `harness_linter.py` | PreToolUse hook |
-| `heartbeat.md` | `.claude/harness-state.local.md` |
+| `heartbeat.md` | `.claude/harness-state.json` |
 
 ## 许可证
 

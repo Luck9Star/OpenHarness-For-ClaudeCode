@@ -30,7 +30,7 @@ Read `eval-criteria.md` from the workspace root. These are the specific validati
 For each done condition and each validation standard:
 
 - **Look for concrete evidence.** File existence, test output, command results — not claims.
-- **Run the verify instruction** if one is specified in the state file (`.claude/harness-state.local.md`, field `verify_instruction`). This is a natural language AI instruction (e.g., "确保所有测试通过") — interpret it by examining workspace artifacts. Do NOT run it as a shell command; instead, determine programmatically what it asks for and verify independently. For example, if the instruction says "ensure all tests pass", run the appropriate test command yourself and check the output.
+- **Run the verify instruction** if one is specified in the state file (`.claude/harness-state.json`, field `verify_instruction`). This is a natural language AI instruction (e.g., "确保所有测试通过") — interpret it by examining workspace artifacts. Do NOT run it as a shell command; instead, determine programmatically what it asks for and verify independently. For example, if the instruction says "ensure all tests pass", run the appropriate test command yourself and check the output.
 - **Check files.** Use Glob to find generated files, Read to verify their contents.
 - **Be thorough.** A single failed check means the overall result is FAILED.
 

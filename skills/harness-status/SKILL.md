@@ -1,26 +1,28 @@
 ---
-description: "Show current OpenHarness workspace status"
+name: harness-status
+description: Show current OpenHarness workspace status. Reads state file and mission, displays progress, warnings, and suggested actions. Trigger: /harness-status.
+argument-hint: ""
 allowed-tools: ["Bash", "Read"]
 ---
 
-# /harness-status — Workspace Status Report
+# /harness-status -- Workspace Status Report
 
 Display the current status of the OpenHarness workspace. Follow these steps:
 
 ## Step 1: Check Workspace Exists
 
-Read `.claude/harness-state.local.md`. If it does not exist, report:
+Read `.claude/harness-state.json`. If it does not exist, report:
 
-> No OpenHarness workspace detected in the current directory. Run `/harness-init` to create one.
+> No OpenHarness workspace detected in the current directory. Run `/harness-start` to create one.
 
 Then stop.
 
 ## Step 2: Read State and Mission
 
 Read these files:
-1. `.claude/harness-state.local.md` — current state
-2. `mission.md` — task name and done conditions
-3. `progress.md` — execution history (if exists)
+1. `.claude/harness-state.json` -- current state
+2. `mission.md` -- task name and done conditions
+3. `progress.md` -- execution history (if exists)
 
 ## Step 3: Display Status Report
 
@@ -56,7 +58,7 @@ Show the most recent entries from progress.md (if any exist).
 
 **If circuit breaker is tripped**, display:
 
-> **CIRCUIT BREAKER TRIPPED** — The harness has detected 3 or more consecutive failures and has halted execution. This requires manual intervention.
+> **CIRCUIT BREAKER TRIPPED** -- The harness has detected 3 or more consecutive failures and has halted execution. This requires manual intervention.
 >
 > Suggested actions:
 > - Read the execution log in `logs/execution_stream.log` to diagnose the root cause
@@ -66,7 +68,7 @@ Show the most recent entries from progress.md (if any exist).
 
 **If mission is complete** (status: `mission_complete`), display:
 
-> **MISSION COMPLETE** — All done conditions have been verified by the eval-agent.
+> **MISSION COMPLETE** -- All done conditions have been verified by the eval-agent.
 >
 > Summary of completed work is available in `progress.md`.
 
@@ -80,7 +82,7 @@ Show the most recent entries from progress.md (if any exist).
 
 **If status is `paused`**, display:
 
-> **PAUSED FOR HUMAN REVIEW** — The harness paused at a human-review checkpoint.
+> **PAUSED FOR HUMAN REVIEW** -- The harness paused at a human-review checkpoint.
 >
 > To resume: `/harness-dev --resume`
 > To review progress: check `progress.md` and `logs/execution_stream.log`
