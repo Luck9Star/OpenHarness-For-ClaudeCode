@@ -11,6 +11,21 @@ PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 # Check if harness workspace is active
 STATE_FILE=".claude/harness-state.json"
 
+# Sub-agent detection: skip context injection if this session is NOT the harness owner.
+# The stop-hook claims the harness by writing its session_id to state on first call.
+# By the time a sub-agent fires SessionStart, the state already has the main session's ID.
+if [[ -f "$STATE_FILE" ]] && [[ ! -t 0 ]]; then
+  HOOK_INPUT=$(cat 2>/dev/null || true)
+  if [[ -n "$HOOK_INPUT" ]]; then
+    HOOK_SESSION=$(printf '%s' "$HOOK_INPUT" | jq -r '.session_id // empty' 2>/dev/null || true)
+    STATE_SESSION=$(jq -r '.session_id // empty' "$STATE_FILE" 2>/dev/null || true)
+    if [[ -n "$HOOK_SESSION" && -n "$STATE_SESSION" && "$STATE_SESSION" != "$HOOK_SESSION" ]]; then
+      # Sub-agent: state already claimed by main harness session
+      exit 0
+    fi
+  fi
+fi
+
 if [[ ! -f "$STATE_FILE" ]]; then
   # No active harness workspace — plugin stays dormant
   exit 0

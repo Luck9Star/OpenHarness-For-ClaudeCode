@@ -30,6 +30,14 @@ def read_state(cwd):
         return None
 
 
+def _write_state(cwd, state):
+    """Write state file atomically."""
+    path = os.path.join(cwd, STATE_FILE)
+    with open(path, "w") as f:
+        json.dump(state, f, indent=2)
+        f.write("\n")
+
+
 def find_loop_done(transcript_path):
     """Check if the last assistant message contains <promise>LOOP_DONE</promise>."""
     if not os.path.exists(transcript_path):
@@ -111,9 +119,17 @@ def main():
         print(f"OpenHarness stop-hook: Invalid 'max_iterations' field (got: {max_iterations}) — defaulting to 0", file=sys.stderr)
         max_iterations = 0
 
-    # Session isolation check
+    # Session isolation: only the main harness session gets the loop behavior.
+    # Sub-agents (different session_id) must be allowed to exit freely.
     hook_session = hook_input.get("session_id", "")
-    if state_session and hook_session and state_session != hook_session:
+
+    if not state_session and hook_session:
+        # First stop-hook call: claim this session as the harness owner
+        state["session_id"] = hook_session
+        state_session = hook_session
+        _write_state(cwd, state)
+    elif state_session and hook_session and state_session != hook_session:
+        # Different session (sub-agent) — allow exit immediately
         sys.exit(0)
 
     # --- Exit conditions ---
@@ -153,9 +169,7 @@ def main():
     # Stuck detection: status 'running' from previous crash — auto-recover
     if status == "running":
         state["status"] = "idle"
-        with open(os.path.join(cwd, STATE_FILE), "w") as f:
-            json.dump(state, f, indent=2)
-            f.write("\n")
+        _write_state(cwd, state)
         print("OpenHarness: Detected stale 'running' status — recovered to idle", file=sys.stderr)
         status = "idle"
 
@@ -180,9 +194,7 @@ def main():
 
     # Increment iteration counter
     state["iteration"] = next_iteration
-    with open(os.path.join(cwd, STATE_FILE), "w") as f:
-        json.dump(state, f, indent=2)
-        f.write("\n")
+    _write_state(cwd, state)
 
     # Build continuation prompt
     continuation_prompt = "Continue harness execution. Read .claude/harness-state.json for current state, then read .claude/harness/mission.md, .claude/harness/playbook.md, .claude/harness/eval-criteria.md in cache-optimal order. Execute the NEXT playbook step (only one step). After completing the step and running validation, end your turn — the loop will continue automatically."
