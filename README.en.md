@@ -68,8 +68,37 @@ Tell Claude Code what you want done. The plugin auto-generates contract files.
 | `--mode single\|dual` | No | Execution mode, default `single` | `--mode dual` |
 | `--verify "instruction"` | No | Natural language verification instruction for eval-agent | `--verify "Ensure all tests pass"` |
 | `--skills "s1,s2"` | No | Comma-separated skill names for dev-agent to load | `--skills "tdd,react-patterns"` |
+| `--quick` | No | Skip wizard, use provided arguments as-is | `--quick` |
 
 > *At least one of task description or `--from-plan` is required. When both are provided, the plan provides structure (steps, architecture) and the description adds supplementary context and constraints.
+
+### Interactive Wizard
+
+When critical parameters are missing (no `--verify`, no description, etc.), `/harness-start` enters **wizard mode** — a multi-turn interactive flow that helps you define a precise task:
+
+| Wizard Step | What It Does | Output |
+|---|---|---|
+| **1A: Task Expansion** | Analyzes your codebase (tech stack, structure, test patterns), expands your description with concrete scope and affected files | Refined task description |
+| **1B: Deliverables** | Enumerates concrete file-level deliverables from the expanded task | List of verifiable outputs |
+| **1C: Verify Derivation** | Generates `--verify` from deliverables — each check is quantified and machine-verifiable, one per deliverable | Precise verify instruction |
+| **1D: Skill Recommendation** | Recommends skills based on detected tech stack and task type | Validated skill list |
+
+Each step presents its output for your confirmation before proceeding. This ensures verify coverage matches actual deliverables — solving the "incomplete verify" anti-pattern at initialization time.
+
+**Quick mode** bypasses the wizard entirely. It activates when:
+1. Task description (or `--from-plan`) is provided
+2. `--verify` is provided
+3. `--quick` flag is set, OR both `--mode` and `--skills` are specified
+
+```bash
+# Wizard mode — missing verify triggers interactive flow
+/harness-start "Add user registration and login"
+
+# Quick mode — all params present, no wizard
+/harness-start "Add user registration and login" \
+  --verify "All tests pass, registration API returns 201" \
+  --skills "tdd" --mode single
+```
 
 **Task overwrite behavior:** Each project directory supports only one active harness task at a time. Running `/harness-start` again:
 
