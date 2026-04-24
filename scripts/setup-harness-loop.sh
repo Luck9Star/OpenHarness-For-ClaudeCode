@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Initialize OpenHarness loop state file
-# Usage: setup-harness-loop.sh <task-name> [--mode single|dual] [--worktree] [--verify INSTRUCTION] [--max-iterations N] [--skills SKILL1,SKILL2]
+# Usage: setup-harness-loop.sh <task-name> [--mode single|dual] [--verify INSTRUCTION] [--max-iterations N] [--skills SKILL1,SKILL2]
 
 set -euo pipefail
 
@@ -12,13 +12,12 @@ STATE_MANAGER="${PLUGIN_ROOT}/scripts/state-manager.py"
 # ---- Argument parsing ----
 TASK_NAME=""
 EXECUTION_MODE="single"
-WORKTREE_FLAG=""
 VERIFY_INSTRUCTION=""
 MAX_ITERATIONS=0
 SKILLS=""
 
 if [[ $# -lt 1 ]]; then
-  echo "Usage: setup-harness-loop.sh <task-name> [--mode single|dual] [--worktree] [--verify INSTRUCTION] [--max-iterations N] [--skills SKILL1,SKILL2]" >&2
+  echo "Usage: setup-harness-loop.sh <task-name> [--mode single|dual] [--verify INSTRUCTION] [--max-iterations N] [--skills SKILL1,SKILL2]" >&2
   exit 1
 fi
 
@@ -38,10 +37,6 @@ while [[ $# -gt 0 ]]; do
         exit 1
       fi
       shift 2
-      ;;
-    --worktree)
-      WORKTREE_FLAG="--worktree"
-      shift
       ;;
     --verify)
       if [[ $# -lt 2 ]]; then
@@ -78,9 +73,6 @@ done
 echo "Initializing OpenHarness loop state..."
 
 INIT_ARGS=("$TASK_NAME" --mode "$EXECUTION_MODE")
-if [[ -n "$WORKTREE_FLAG" ]]; then
-  INIT_ARGS+=(--worktree)
-fi
 if [[ -n "$VERIFY_INSTRUCTION" ]]; then
   INIT_ARGS+=(--verify "$VERIFY_INSTRUCTION")
 fi
@@ -107,9 +99,6 @@ echo ""
 echo "=== OpenHarness Loop Initialized ==="
 echo "  Task Name:         $TASK_NAME"
 echo "  Execution Mode:    $EXECUTION_MODE"
-if [[ "$EXECUTION_MODE" == "dual" ]]; then
-  echo "  Worktree Isolation: ${WORKTREE_FLAG:+yes}${WORKTREE_FLAG:-no}"
-fi
 echo "  Verify Instruction: ${VERIFY_INSTRUCTION:-(none)}"
 echo "  Skills:            ${SKILLS:-(none)}"
 echo "  Max Iterations:     ${MAX_ITERATIONS:-0 (infinite)}"

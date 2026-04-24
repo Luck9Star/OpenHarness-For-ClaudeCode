@@ -23,12 +23,19 @@ PROTECTED_FILES = {
 WRITE_TOOLS = {"Write", "Edit", "MultiEdit"}
 
 
+# Project boundary markers for upward search
+BOUNDARY_MARKERS = {".git", "CLAUDE.md", ".claude-plugin"}
+
+
 def find_harness_root():
     """Walk up from cwd to find a directory with .claude/harness-state.json."""
     p = Path.cwd()
     while p != p.parent:
         if (p / ".claude" / "harness-state.json").exists():
             return p
+        # Stop at project boundaries
+        if any((p / m).exists() for m in BOUNDARY_MARKERS):
+            return None
         p = p.parent
     return None
 

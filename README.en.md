@@ -160,7 +160,6 @@ You can also run without `/loop` (relies on stop-hook to drive the loop):
 | Parameter | Required | Description | Example |
 |---|---|---|---|
 | `--mode single\|dual` | No | Execution mode, default `single` | `--mode dual` |
-| `--worktree` | No | Enable git worktree isolation in dual mode (default: work in-place) | `--worktree` |
 | `--max-iterations N` | No | Max loop iterations, 0 = infinite (default) | `--max-iterations 10` |
 | `--resume` | No | Resume from human-review pause point | `--resume` |
 
@@ -313,17 +312,13 @@ Planning and coding are separated. The main agent writes a tech spec, spawns `ha
 /harness-dev --mode dual
 ```
 
-### Dual Mode + Worktree Isolation
+### Dual Mode (Context Isolation)
 
 ```
-Main Agent (plan only) → dev-agent (codes in isolated worktree) → eval-agent (validates) → pass/fail
+Main Agent (plan only) → dev-agent (codes in-place) → eval-agent (validates) → pass/fail
 ```
 
-Adds `--worktree` flag to dual mode so dev-agent works in an isolated git branch, with changes merged back on success. Best for multi-module development, architecture refactors that need **strict git isolation**.
-
-```bash
-/harness-dev --mode dual --worktree
-```
+Planning and coding are separated. The main agent writes a tech spec, spawns `harness-dev-agent` to implement in the current directory. The main benefit is **protecting the main agent's context** — coding details stay in the subagent. Best for multi-file refactors, architecture adjustments that need **context protection**.
 
 ## Workflow
 
@@ -406,7 +401,7 @@ openharness-cc/
 | OpenHarness (OpenClaw/Codex) | This Plugin |
 |---|---|
 | `cron` + `harness_setup_cron.py` | `/loop` built-in command |
-| `harness_coordinator.py` | Claude Code agent spawning + worktrees |
+| `harness_coordinator.py` | Claude Code agent spawning |
 | `harness_eval.py` | `harness-eval-agent` (oracle isolation) |
 | `harness_boot.py` circuit breaker | Stop hook + state file |
 | `harness_dream.py` | `harness-dream` skill + `/loop 24h` |

@@ -21,6 +21,7 @@ Usage:
 
 import sys
 import json
+import os
 import re
 from datetime import datetime
 from pathlib import Path
@@ -31,13 +32,20 @@ LOG_FILE = ".claude/harness/logs/execution_stream.log"
 MAX_STATE_SIZE = 2048
 
 
+# Project boundary markers: stop upward search when one is found
+BOUNDARY_MARKERS = [".git", "CLAUDE.md", ".claude-plugin"]
+
+
 def find_state_file():
-    """Find state file, searching up from cwd."""
+    """Find state file, searching up from cwd. Stops at project boundaries."""
     p = Path.cwd()
     while p != p.parent:
         candidate = p / STATE_FILE
         if candidate.exists():
             return candidate
+        # Stop at project boundaries (avoids crossing into parent projects)
+        if any((p / m).exists() for m in BOUNDARY_MARKERS):
+            return None
         p = p.parent
     return None
 
@@ -54,13 +62,15 @@ def read_state(path=None):
 
 
 def write_state(state, path=None):
-    """Write JSON state file."""
+    """Write JSON state file atomically (temp + rename)."""
     target = path or find_state_file()
     if not target:
         print("No active harness workspace", file=sys.stderr)
         sys.exit(1)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(state, indent=2) + "\n")
+    tmp = target.with_suffix(".tmp")
+    tmp.write_text(json.dumps(state, indent=2) + "\n")
+    os.replace(tmp, target)
 
 
 def cmd_read(args):
@@ -78,25 +88,34 @@ def cmd_init(args):
     execution_mode = "single"
     verify_instruction = ""
     max_iterations = 0
-    worktree = "off"
     skills = ""
     force = False
+
+    def _validate_value(flag, value):
+        if value.startswith("--"):
+            print(f"Error: {flag} requires a value, got flag-like '{value}'", file=sys.stderr)
+            sys.exit(1)
 
     i = 1
     while i < len(args):
         if args[i] == "--mode" and i + 1 < len(args):
+            _validate_value("--mode", args[i + 1])
             execution_mode = args[i + 1]
             i += 2
         elif args[i] == "--verify" and i + 1 < len(args):
+            _validate_value("--verify", args[i + 1])
             verify_instruction = args[i + 1]
             i += 2
         elif args[i] == "--max-iterations" and i + 1 < len(args):
-            max_iterations = int(args[i + 1])
+            _validate_value("--max-iterations", args[i + 1])
+            try:
+                max_iterations = int(args[i + 1])
+            except ValueError:
+                print(f"Error: --max-iterations requires a number, got '{args[i+1]}'", file=sys.stderr)
+                sys.exit(1)
             i += 2
-        elif args[i] == "--worktree":
-            worktree = "on"
-            i += 1
         elif args[i] == "--skills" and i + 1 < len(args):
+            _validate_value("--skills", args[i + 1])
             skills = args[i + 1]
             i += 2
         elif args[i] == "--force":
@@ -130,7 +149,6 @@ def cmd_init(args):
     state = {
         "status": "idle",
         "execution_mode": execution_mode,
-        "worktree": worktree,
         "current_step": "Step 1",
         "consecutive_failures": 0,
         "total_executions": 0,
@@ -149,7 +167,7 @@ def cmd_init(args):
 
     # Ensure log directory exists
     log_dir = Path.cwd() / ".claude/harness" / "logs"
-    log_dir.mkdir(exist_ok=True)
+    log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / "execution_stream.log"
     if not log_path.exists():
         log_path.write_text(f"# Execution Stream Log\n# Initialized {now}\n\n")
@@ -176,6 +194,14 @@ def cmd_update(args):
     write_state(state, path)
 
 
+def _log_path():
+    """Derive log path from state file location (not CWD-dependent)."""
+    state_path = find_state_file()
+    if state_path:
+        return state_path.parent / "harness" / "logs" / "execution_stream.log"
+    return Path.cwd() / LOG_FILE
+
+
 def cmd_log(args):
     """Append a log entry to execution stream (L3)."""
     if not args:
@@ -183,7 +209,7 @@ def cmd_log(args):
         sys.exit(1)
     message = " ".join(args)
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    log_path = Path.cwd() / LOG_FILE
+    log_path = _log_path()
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with open(log_path, "a") as f:
         f.write(f"[{now}] {message}\n")
@@ -240,6 +266,7 @@ def cmd_trip_breaker(args):
         sys.exit(1)
     state = read_state(path)
     state["circuit_breaker"] = "tripped"
+    state["status"] = "failed"
     write_state(state, path)
     print("Circuit breaker TRIPPED")
 
@@ -254,7 +281,7 @@ def cmd_report(args):
         sys.exit(1)
     subtask, strategy, verification, state_target = args[0], args[1], args[2], args[3]
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    log_path = Path.cwd() / LOG_FILE
+    log_path = _log_path()
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with open(log_path, "a") as f:
         f.write(f"[{now}] ## Round Report\n")

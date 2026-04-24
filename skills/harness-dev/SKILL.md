@@ -1,7 +1,7 @@
 ---
 name: harness-dev
 description: Autonomous development loop for OpenHarness. Parses arguments, manages loop state, executes playbook steps via single or dual mode, validates via eval-agent. Trigger: /harness-dev.
-argument-hint: "[--mode single|dual] [--worktree] [--max-iterations N] [--resume]"
+argument-hint: "[--mode single|dual] [--max-iterations N] [--resume]"
 allowed-tools: ["Bash", "Agent", "Read", "Write", "Edit"]
 ---
 
@@ -27,12 +27,10 @@ Parse the command arguments (if any were provided):
 
 - `--mode single` (default): Agent plans and codes directly, with oracle validation
 - `--mode dual`: Agent plans only, then spawns `harness-dev-agent` for coding. Protects main agent context from explosion.
-- `--worktree`: In dual mode, run dev-agent in an isolated git worktree. Without this flag, dev-agent works in the same directory.
 - `--max-iterations N`: Stop the loop after N iterations (0 = infinite)
 - `--resume`: Resume from a paused state (after human-review checkpoint)
 
 If `--mode` is not specified, default to `single`.
-`--worktree` only has effect in `dual` mode.
 
 Note: The `--verify` instruction and `--skills` are preserved from the existing state file (set by `/harness-start`) and forwarded to the loop setup script in Step 3.
 
@@ -50,7 +48,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" read
 Extract the `verify_instruction` and `skills` values from the JSON output, then forward them:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup-harness-loop.sh" <task-name> --mode <mode> [--worktree] --max-iterations <N> --verify "<verify_instruction>" --skills "<skills>"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup-harness-loop.sh" <task-name> --mode <mode> --max-iterations <N> --verify "<verify_instruction>" --skills "<skills>"
 ```
 
 Use the task name from `.claude/harness/mission.md` (Section 1: Mission Name).
@@ -63,11 +61,8 @@ Verify the output confirms successful initialization.
 **If single mode**, explain to the user:
 > Single mode active. I will plan each playbook step, implement the code directly, then spawn an eval-agent for independent verification. The loop continues until all done conditions are met or the circuit breaker trips.
 
-**If dual mode (without --worktree)**, explain to the user:
-> Dual mode active (in-place). I will plan each playbook step, then spawn `harness-dev-agent` as a subagent to implement code in the current directory. This protects my context from explosion while keeping all changes in-place.
-
-**If dual mode (with --worktree)**, explain to the user:
-> Dual mode active (worktree). I will plan each playbook step, then spawn `harness-dev-agent` in an isolated git worktree. Changes happen on a separate branch and are merged back on success.
+**If dual mode**, explain to the user:
+> Dual mode active. I will plan each playbook step, then spawn `harness-dev-agent` as a subagent to implement code in the current directory. This protects my context from explosion while keeping all changes in-place.
 
 ## Step 5: Read Mission and Begin Execution
 
@@ -156,22 +151,13 @@ After completing the step:
 
 You plan only. Delegate coding to a sub-agent.
 
-*Dual Mode -- In-Place (worktree: off, default)*
+*Dual Mode*
 
 1. Read the current step requirements from the playbook
 2. Construct a detailed prompt with: task, file paths, constraints from `.claude/harness/mission.md`, eval criteria, skills to load
-3. Spawn `harness-dev-agent` WITHOUT worktree isolation
+3. Spawn `harness-dev-agent` in the current directory
 4. Wait for the agent to complete
-5. Log the delegation: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Delegated <step> to harness-dev-agent (in-place)"`
-
-*Dual Mode -- Worktree (worktree: on)*
-
-1. Read the current step requirements from the playbook
-2. Construct a detailed prompt
-3. Spawn `harness-dev-agent` with `isolation: "worktree"` for git worktree isolation
-4. Wait for the agent to complete
-5. Merge the worktree changes back to the main branch
-6. Log the delegation: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Delegated <step> to harness-dev-agent in worktree"`
+5. Log the delegation: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Delegated <step> to harness-dev-agent"`
 
 #### type: review
 

@@ -44,7 +44,7 @@ Any → mission_complete (all done + verified) → loop exits
 ## Execution Mode
 
 - **single** (default): Main agent plans AND codes. Eval-agent validates independently.
-- **dual**: Main agent plans only. Spawns `harness-dev-agent` for coding in isolated worktree. Eval-agent validates.
+- **dual**: Main agent plans only. Spawns `harness-dev-agent` for coding in-place. Eval-agent validates.
 
 ## Completion Promise
 

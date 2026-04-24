@@ -155,7 +155,6 @@ Agent 开始自主工作，通过 stop-hook 驱动循环执行。**推荐使用 
 | 参数 | 必填 | 说明 | 示例 |
 |---|---|---|---|
 | `--mode single\|dual` | 否 | 执行模式，默认 `single` | `--mode dual` |
-| `--worktree` | 否 | dual 模式下启用 git worktree 隔离（默认在当前目录工作） | `--worktree` |
 | `--max-iterations N` | 否 | 最大循环次数，0 表示无限（默认） | `--max-iterations 10` |
 | `--resume` | 否 | 从 human-review 暂停点恢复执行 | `--resume` |
 
@@ -321,17 +320,13 @@ Agent 自己规划步骤，自己写代码，但**验证环节由独立的 eval-
 /harness-dev --mode dual
 ```
 
-### Dual 模式 + Worktree 隔离
+### Dual 模式（上下文隔离）
 
 ```
-主 Agent（只规划）→ dev-agent（隔离 worktree 中编码）→ eval-agent（独立验证）→ 通过/失败
+主 Agent（只规划）→ dev-agent（当前目录编码）→ eval-agent（独立验证）→ 通过/失败
 ```
 
-在 dual 模式基础上，加 `--worktree` 标志让 dev-agent 在独立 git worktree 分支中工作，代码变更在独立分支上完成后合并回主分支。适合多模块开发、架构重构等需要**严格 git 隔离**的场景。
-
-```bash
-/harness-dev --mode dual --worktree
-```
+规划和编码分离，主 Agent 写 tech spec，派生 `harness-dev-agent` 在当前目录实现代码。主要好处是**保护主 Agent 上下文**——编码细节留在子 agent 中。适合多文件重构、架构调整等需要**保护主 Agent 上下文**的场景。
 
 ## 工作流
 
@@ -435,7 +430,7 @@ openharness-cc/
 | OpenHarness (OpenClaw/Codex) | 本插件 |
 |---|---|
 | `cron` + `harness_setup_cron.py` | `/loop` 内置命令 |
-| `harness_coordinator.py` | Claude Code agent spawning + worktree |
+| `harness_coordinator.py` | Claude Code agent spawning |
 | `harness_eval.py` | `harness-eval-agent`（Oracle 隔离） |
 | `harness_boot.py` 断路器 | Stop hook + 状态文件 |
 | `harness_dream.py` | `harness-dream` skill + `/loop 24h` |

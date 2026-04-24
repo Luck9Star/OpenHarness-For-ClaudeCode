@@ -4,5 +4,8 @@
   "description": "Autonomous AI agent execution framework for Claude Code — adapted from OpenHarness Harness Engineering principles. Provides 24/7 continuous development with machine-verifiable contracts, three-layer memory, circuit breaker protection, and oracle-isolated validation.",
   "author": {
     "name": "openharness-cc contributors"
-  }
+  },
+  "agents": "./agents",
+  "skills": "./skills",
+  "hooks": "./hooks/hooks.json"
 }

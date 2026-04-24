@@ -31,11 +31,13 @@ def read_state(cwd):
 
 
 def _write_state(cwd, state):
-    """Write state file atomically."""
+    """Write state file atomically (temp + rename)."""
     path = os.path.join(cwd, STATE_FILE)
-    with open(path, "w") as f:
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
         json.dump(state, f, indent=2)
         f.write("\n")
+    os.replace(tmp, path)
 
 
 def find_loop_done(transcript_path):
@@ -134,22 +136,34 @@ def main():
 
     # --- Exit conditions ---
 
-    # Circuit breaker tripped
-    if circuit_breaker == "tripped":
-        print("OpenHarness: Circuit breaker tripped — loop stopped. Manual intervention required.", file=sys.stderr)
+    # Helper: archive workspace before removing state file on terminal exit
+    def _archive_and_remove():
+        plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT", "")
+        script = os.path.join(plugin_root, "scripts", "state-manager.py") if plugin_root else ""
+        if not script or not os.path.exists(script):
+            # Fallback: check CWD (works during plugin development)
+            script = os.path.join(cwd, "scripts", "state-manager.py")
+        if os.path.exists(script):
+            import subprocess
+            subprocess.run(["python3", script, "archive"], cwd=cwd,
+                           capture_output=True, timeout=10)
         try:
             os.remove(os.path.join(cwd, STATE_FILE))
         except OSError:
             pass
+
+    # Circuit breaker tripped (defense-in-depth: both breaker and status are checked,
+    # but only breaker is the authoritative exit signal — status:"failed" is transient
+    # during normal retry flow and should NOT trigger loop exit alone)
+    if circuit_breaker == "tripped":
+        print("OpenHarness: Circuit breaker tripped — loop stopped. Manual intervention required.", file=sys.stderr)
+        _archive_and_remove()
         sys.exit(0)
 
     # Max iterations reached
     if max_iterations > 0 and iteration >= max_iterations:
         print(f"OpenHarness: Max iterations ({max_iterations}) reached. Loop exiting.")
-        try:
-            os.remove(os.path.join(cwd, STATE_FILE))
-        except OSError:
-            pass
+        _archive_and_remove()
         sys.exit(0)
 
     # Paused for human review
@@ -160,10 +174,7 @@ def main():
     # Mission complete
     if status == "mission_complete":
         print("OpenHarness: Mission complete. Loop exiting.")
-        try:
-            os.remove(os.path.join(cwd, STATE_FILE))
-        except OSError:
-            pass
+        _archive_and_remove()
         sys.exit(0)
 
     # Stuck detection: status 'running' from previous crash — auto-recover
@@ -182,10 +193,7 @@ def main():
 
     if promise == "LOOP_DONE":
         print("OpenHarness: Detected <promise>LOOP_DONE</promise>. Mission complete — loop exiting.")
-        try:
-            os.remove(os.path.join(cwd, STATE_FILE))
-        except OSError:
-            pass
+        _archive_and_remove()
         sys.exit(0)
 
     # --- None of the exit conditions met — block exit and continue ---
@@ -195,6 +203,19 @@ def main():
     # Increment iteration counter
     state["iteration"] = next_iteration
     _write_state(cwd, state)
+
+    # Lightweight cleanup: remove temp files to prevent accumulation
+    try:
+        import glob as _glob
+        harness_dir = os.path.join(cwd, ".claude", "harness")
+        for pattern in ["*.tmp", "*.bak", "*.swp"]:
+            for f in _glob.glob(os.path.join(harness_dir, "**", pattern), recursive=True):
+                try:
+                    os.remove(f)
+                except OSError:
+                    pass
+    except Exception:
+        pass  # cleanup is best-effort, never block the loop
 
     # Build continuation prompt
     continuation_prompt = "Continue harness execution. Read .claude/harness-state.json for current state, then read .claude/harness/mission.md, .claude/harness/playbook.md, .claude/harness/eval-criteria.md in cache-optimal order. Execute the NEXT playbook step (only one step). After completing the step and running validation, end your turn — the loop will continue automatically."

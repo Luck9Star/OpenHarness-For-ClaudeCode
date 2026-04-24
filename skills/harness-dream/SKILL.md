@@ -15,9 +15,9 @@ Before proceeding, verify that the workspace state is NOT `running`:
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" read
 ```
 
-If `status` is `running`, stop immediately with the message:
+If `status` is `running`, output the message and stop:
 
-> Cannot dream while workspace is running. Wait for the current iteration to complete.
+> [Harness Dream] Skipped — workspace is currently running. Dream only executes during idle periods. Loop-driven tasks will dream automatically between iterations.
 
 Allowed states for dreaming: `idle`, `failed`, `completed`, `blocked`, `mission_complete`.
 
