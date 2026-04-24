@@ -70,3 +70,25 @@ When validation fails:
 - **Never accept executor self-assessment as final.** The executor saying "I'm done" is not validation.
 - **Never modify `.claude/harness/logs/eval_report.json` yourself.** Only harness-eval-agent writes to it.
 - **Tripped circuit breaker overrides everything.** If the state file shows `circuit_breaker: tripped`, do not run evaluation. Report the blockage to the user instead.
+
+## Quality Enforcement (Goodhart's Law Defense)
+
+When evaluating, apply these checks in addition to the explicit standards:
+
+### Density Verification
+For review/audit tasks: verify that findings have adequate density. If a review report shows very few findings relative to the codebase size (e.g., < 1 finding per 500 LOC for code review), flag this as a potential shallow review — even if all explicit checks PASS. Report as:
+```json
+{"check": "finding_density", "passed": false, "evidence": "Only 2 findings for 10K LOC codebase (5000 LOC/finding). Threshold is 500 LOC/finding."}
+```
+
+### Exhaustion Evidence
+For every dimension/module where the executor claims "no issues found" or "looks clean", verify that supporting evidence is provided. A bare "no issues" without explanation of what was checked is NOT acceptable.
+
+### Shallow Pass Detection
+If ALL checks pass but the evidence for each check is suspiciously thin (e.g., each check's evidence is under 20 words, no file:line references, no command output), flag the overall evaluation as `PASS_WITH_CONCERN` and include a note:
+```json
+{"overall": true, "confidence": "low", "concern": "All checks passed but evidence is thin. Recommend re-dispatching with deeper scope."}
+```
+
+### Convergence Proof
+When comparing results across iterations (if historical data is available): if the number of findings dropped significantly (> 50%), verify that the executor provided an explanation for WHY — not just that it dropped. Absent an explanation, flag it.

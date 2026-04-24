@@ -261,6 +261,13 @@ Create validation standards based on the verify instruction:
 - Keep all checks machine-verifiable
 - Ensure every deliverable from Step 1B has at least one corresponding check
 
+**Quality enforcement rules** (prevent Goodhart's Law — process compliance != quality):
+
+- **Every deliverable check must have a quality criterion**, not just existence. "File exists" is never sufficient alone — pair it with content depth, structure, or behavioral verification.
+- **For review/audit tasks**: Include the Review Task Standards from the template (Density Check, Exhaustion Check, Convergence with Proof, Blind Spot Acknowledgment). These are MANDATORY for any task whose primary output is a review report.
+- **For implementation tasks**: Each functional check should have both a positive condition (does it work?) and a depth condition (is it complete enough?). Example: not just "tests pass" but "tests cover >= N scenarios including error paths."
+- **Never write a pass condition that can be trivially satisfied.** Avoid bare "file exists", "report contains N sections", "no new P0 findings" without requiring evidence of depth.
+
 ### .claude/harness/progress.md
 
 Initialize with:
