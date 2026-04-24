@@ -23,9 +23,9 @@ MAX_STATE_SIZE = 2048                  # 2KB
 
 # State file location
 STATE_FILE = ".claude/harness-state.json"
-LOG_FILE = "logs/execution_stream.log"
-PROGRESS_FILE = "progress.md"
-DREAM_JOURNAL = "logs/dream_journal.md"
+LOG_FILE = ".claude/harness/logs/execution_stream.log"
+PROGRESS_FILE = ".claude/harness/progress.md"
+DREAM_JOURNAL = ".claude/harness/logs/dream_journal.md"
 
 # Temp file patterns to clean
 TEMP_PATTERNS = ["*.tmp", "*.bak", "*.swp", "*~", ".DS_Store"]

@@ -24,7 +24,7 @@ from datetime import datetime
 from pathlib import Path
 
 STATE_FILE = ".claude/harness-state.json"
-LOG_FILE = "logs/execution_stream.log"
+LOG_FILE = ".claude/harness/logs/execution_stream.log"
 
 MAX_STATE_SIZE = 2048
 
@@ -126,7 +126,7 @@ def cmd_init(args):
     write_state(state, state_path)
 
     # Ensure log directory exists
-    log_dir = Path.cwd() / "logs"
+    log_dir = Path.cwd() / ".claude/harness" / "logs"
     log_dir.mkdir(exist_ok=True)
     log_path = log_dir / "execution_stream.log"
     if not log_path.exists():

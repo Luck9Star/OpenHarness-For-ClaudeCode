@@ -29,7 +29,7 @@ Parse the user's arguments from `$ARGUMENTS`. All flags are optional -- only spe
 If no flags are provided, enter interactive mode:
 
 1. Read the current task state: `.claude/harness-state.json`
-2. Read `mission.md` for current mission
+2. Read `.claude/harness/mission.md` for current mission
 3. Ask the user what they want to modify:
    ```
    Current task: <task-name>
@@ -48,7 +48,7 @@ If no flags are provided, enter interactive mode:
 
 ## Workflow
 
-1. **Check workspace exists** -- verify `.claude/harness-state.json` and `mission.md` exist. If not, tell the user to run `/harness-start` first.
+1. **Check workspace exists** -- verify `.claude/harness-state.json` and `.claude/harness/mission.md` exist. If not, tell the user to run `/harness-start` first.
 
 2. **Parse arguments** -- determine which modifications to apply.
 
@@ -61,13 +61,13 @@ If no flags are provided, enter interactive mode:
    ```
 
    ### --mission
-   Read the current `mission.md`, then use the Edit tool to update the Mission Objective section. Replace the content between `## Mission Objective` and the next `##` heading with the user's input.
+   Read the current `.claude/harness/mission.md`, then use the Edit tool to update the Mission Objective section. Replace the content between `## Mission Objective` and the next `##` heading with the user's input.
 
    ### --playbook-step
-   Read `playbook.md`, locate step N, replace its content with the provided text. Preserve step numbering and format.
+   Read `.claude/harness/playbook.md`, locate step N, replace its content with the provided text. Preserve step numbering and format.
 
    ### --append-step
-   Read `playbook.md`, add a new step at the end with the provided description. Update the dependency diagram if one exists.
+   Read `.claude/harness/playbook.md`, add a new step at the end with the provided description. Update the dependency diagram if one exists.
 
    ### --mode
    ```bash
@@ -76,9 +76,9 @@ If no flags are provided, enter interactive mode:
 
    ### --from-file
    Read the specified file and extract:
-   - Task description / objectives -> update mission.md
-   - Implementation steps -> update playbook.md
-   - Verification criteria -> update eval-criteria.md
+   - Task description / objectives -> update `.claude/harness/mission.md`
+   - Implementation steps -> update `.claude/harness/playbook.md`
+   - Verification criteria -> update `.claude/harness/eval-criteria.md`
 
 4. **Log the change**:
    ```bash
@@ -97,6 +97,6 @@ If no flags are provided, enter interactive mode:
 ## Important Rules
 
 - Do NOT reset the execution state (status, step, failures) unless the user explicitly requests it.
-- Do NOT modify `progress.md` -- it's a log, not editable.
+- Do NOT modify `.claude/harness/progress.md` -- it's a log, not editable.
 - Preserve existing content when making targeted updates -- don't rewrite entire files for small changes.
 - If the task is currently `running`, warn the user and ask for confirmation before modifying.

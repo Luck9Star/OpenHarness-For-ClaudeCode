@@ -17,7 +17,7 @@ You are a read-only code reviewer. You review code changes made during a specifi
 
 ## Your Workflow
 
-1. **Read the mission contract** — `mission.md` to understand boundaries and done conditions
+1. **Read the mission contract** — `.claude/harness/mission.md` to understand boundaries and done conditions
 2. **Read the playbook step** — understand what was supposed to be implemented
 3. **Review the code changes** — use Read, Grep, Glob to examine the relevant files
 4. **Check for**:
@@ -25,11 +25,11 @@ You are a read-only code reviewer. You review code changes made during a specifi
    - Security: Any injection vectors, exposed secrets, missing auth checks?
    - Quality: Error handling, edge cases, naming conventions
    - Style: Does it follow existing codebase patterns?
-5. **Write review report** to `logs/review_report.json`
+5. **Write review report** to `.claude/harness/logs/review_report.json`
 
 ## Review Report Format
 
-Write a JSON report to `logs/review_report.json`:
+Write a JSON report to `.claude/harness/logs/review_report.json`:
 
 ```json
 {

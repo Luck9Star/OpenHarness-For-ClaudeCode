@@ -21,8 +21,8 @@ Then stop.
 
 Read these files:
 1. `.claude/harness-state.json` -- current state
-2. `mission.md` -- task name and done conditions
-3. `progress.md` -- execution history (if exists)
+2. `.claude/harness/mission.md` -- task name and done conditions
+3. `.claude/harness/progress.md` -- execution history (if exists)
 
 ## Step 3: Display Status Report
 
@@ -32,7 +32,7 @@ Render the following information:
 
 | Field | Value |
 |---|---|
-| Task Name | _(from mission.md Section 1)_ |
+| Task Name | _(from .claude/harness/mission.md Section 1)_ |
 | Execution Mode | _(from state file)_ |
 | Current Status | _(from state file)_ |
 | Current Step | _(from state file)_ |
@@ -44,7 +44,7 @@ Render the following information:
 
 ### Completion Progress
 
-List each done condition from mission.md Section 3 with its status:
+List each done condition from `.claude/harness/mission.md` Section 3 with its status:
 
 | # | Condition | Status |
 |---|---|---|
@@ -52,7 +52,7 @@ List each done condition from mission.md Section 3 with its status:
 
 ### Execution History (last 5 entries)
 
-Show the most recent entries from progress.md (if any exist).
+Show the most recent entries from `.claude/harness/progress.md` (if any exist).
 
 ## Step 4: Conditional Messages
 
@@ -61,7 +61,7 @@ Show the most recent entries from progress.md (if any exist).
 > **CIRCUIT BREAKER TRIPPED** -- The harness has detected 3 or more consecutive failures and has halted execution. This requires manual intervention.
 >
 > Suggested actions:
-> - Read the execution log in `logs/execution_stream.log` to diagnose the root cause
+> - Read the execution log in `.claude/harness/logs/execution_stream.log` to diagnose the root cause
 > - Fix the underlying issue manually
 > - Reset the circuit breaker with: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" reset-fail`
 > - Update the state to running: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" update status running`
@@ -70,7 +70,7 @@ Show the most recent entries from progress.md (if any exist).
 
 > **MISSION COMPLETE** -- All done conditions have been verified by the eval-agent.
 >
-> Summary of completed work is available in `progress.md`.
+> Summary of completed work is available in `.claude/harness/progress.md`.
 
 **If status is `running`**, display:
 
@@ -85,7 +85,7 @@ Show the most recent entries from progress.md (if any exist).
 > **PAUSED FOR HUMAN REVIEW** -- The harness paused at a human-review checkpoint.
 >
 > To resume: `/harness-dev --resume`
-> To review progress: check `progress.md` and `logs/execution_stream.log`
+> To review progress: check `.claude/harness/progress.md` and `.claude/harness/logs/execution_stream.log`
 
 **If status is `failed`**, display:
 

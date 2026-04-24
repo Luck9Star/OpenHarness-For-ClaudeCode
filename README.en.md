@@ -168,7 +168,7 @@ Modify an existing task's configuration at any time:
 /harness-start "Refactor auth module" --verify "All existing tests pass and new module has complete unit test coverage"
 ```
 
-Without `--verify`, the eval-agent still performs structural validation based on `eval-criteria.md` (checking file existence, content plausibility), but lacks targeted semantic verification.
+Without `--verify`, the eval-agent still performs structural validation based on `.claude/harness/eval-criteria.md` (checking file existence, content plausibility), but lacks targeted semantic verification.
 
 ## Task Prompt Writing Guide
 
@@ -285,7 +285,7 @@ Adds `--worktree` flag to dual mode so dev-agent works in an isolated git branch
 flowchart TD
     A["/harness-start<br/>description + --from-plan + --verify + --skills"] --> B["Quality preference questions<br/>review rounds / TDD / auto-fix"]
     B --> C["Dynamic playbook generation<br/>implement / review / fix / verify steps"]
-    C --> D["Generate contract files<br/>mission.md / playbook.md<br/>eval-criteria.md / progress.md"]
+    C --> D["Generate contract files<br/>.claude/harness/mission.md / playbook.md<br/>eval-criteria.md / progress.md"]
     D --> E["/harness-dev<br/>start dev loop"]
     E --> F{"Circuit breaker<br/>tripped?"}
     F -- yes --> STOP["Stop — manual intervention"]
@@ -321,7 +321,7 @@ flowchart TD
 /harness-start "task description" --verify "instruction"
   → AI asks quality preferences (review rounds, TDD, auto-fix)
   → Dynamically generate playbook with typed steps
-  → Create mission.md + playbook.md + eval-criteria.md
+  → Create .claude/harness/mission.md + playbook.md + eval-criteria.md
   → Initialize .claude/harness-state.json
 
 /harness-dev
@@ -342,7 +342,7 @@ flowchart TD
 | Circuit breaker | Auto-stops after 3 consecutive validation failures, preventing infinite token-burning loops |
 | PreToolUse Hook | Protects `.claude/harness-state.json` from direct agent modification |
 | Oracle isolation | eval-agent cannot see the main agent's reasoning — only workspace artifacts |
-| Task modification gate | Contract files (`mission.md`, `playbook.md`) are only editable through `/harness-edit` |
+| Task modification gate | Contract files in `.claude/harness/` are only editable through `/harness-edit` |
 
 ## Architecture
 

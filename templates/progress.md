@@ -7,7 +7,7 @@
 
 | Field | Value |
 |---|---|
-| Task Name | `[From mission.md]` |
+| Task Name | `[From .claude/harness/mission.md]` |
 | Start Time | `[Auto-filled]` |
 | Total Conditions | `[From mission.md]` |
 | Conditions Met | `0` |

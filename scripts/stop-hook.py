@@ -185,7 +185,7 @@ def main():
         f.write("\n")
 
     # Build continuation prompt
-    continuation_prompt = "Continue harness execution. Read .claude/harness-state.json for current state, then read mission.md, playbook.md, eval-criteria.md in cache-optimal order. Execute the NEXT playbook step (only one step). After completing the step and running validation, end your turn — the loop will continue automatically."
+    continuation_prompt = "Continue harness execution. Read .claude/harness-state.json for current state, then read .claude/harness/mission.md, .claude/harness/playbook.md, .claude/harness/eval-criteria.md in cache-optimal order. Execute the NEXT playbook step (only one step). After completing the step and running validation, end your turn — the loop will continue automatically."
 
     system_msg = f"[Harness iteration {next_iteration}] | mode: {execution_mode} | status: {status} | failures: {consecutive_failures} | To stop when genuinely done: output <promise>LOOP_DONE</promise>"
 

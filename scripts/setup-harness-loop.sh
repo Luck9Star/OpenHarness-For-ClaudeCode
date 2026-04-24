@@ -91,6 +91,9 @@ INIT_ARGS+=(--max-iterations "$MAX_ITERATIONS")
 
 python3 "$STATE_MANAGER" init "${INIT_ARGS[@]}"
 
+# ---- Ensure harness directory structure ----
+mkdir -p .claude/harness/logs
+
 # ---- Verify state file was created ----
 STATE_FILE=".claude/harness-state.json"
 

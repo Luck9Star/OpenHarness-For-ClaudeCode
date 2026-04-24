@@ -12,11 +12,11 @@ You are running the validation phase of an OpenHarness task. This is the gate th
 Spawn `harness-eval-agent` as an independent evaluator. This agent:
 
 - Cannot see your reasoning or planning
-- Reads mission.md done conditions and eval-criteria.md independently
+- Reads `.claude/harness/mission.md` done conditions and `.claude/harness/eval-criteria.md` independently
 - Checks each condition against workspace artifacts
 - Interprets verify_instruction (natural language AI instruction) independently
 - Performs its own file-existence, command-exit-code, and semantic checks
-- Produces its verdict in `logs/eval_report.json`
+- Produces its verdict in `.claude/harness/logs/eval_report.json`
 
 Spawn the agent:
 
@@ -24,11 +24,11 @@ Spawn the agent:
 Use the Agent tool to spawn harness-eval-agent
 ```
 
-The agent will write its verdict to `logs/eval_report.json`.
+The agent will write its verdict to `.claude/harness/logs/eval_report.json`.
 
 ## Step 2: Read Oracle Verdict
 
-Read `logs/eval_report.json` produced by the eval agent.
+Read `.claude/harness/logs/eval_report.json` produced by the eval agent.
 
 **If `overall: true`:**
 - Validation has passed
@@ -45,7 +45,7 @@ Read `logs/eval_report.json` produced by the eval agent.
 
 When validation fails:
 
-1. **Collect failure details** from `logs/eval_report.json`:
+1. **Collect failure details** from `.claude/harness/logs/eval_report.json`:
    - Which checks failed
    - What evidence was observed
    - What the expected condition was
@@ -68,5 +68,5 @@ When validation fails:
 ## Critical Rules
 
 - **Never accept executor self-assessment as final.** The executor saying "I'm done" is not validation.
-- **Never modify eval_report.json yourself.** Only harness-eval-agent writes to it.
+- **Never modify `.claude/harness/logs/eval_report.json` yourself.** Only harness-eval-agent writes to it.
 - **Tripped circuit breaker overrides everything.** If the state file shows `circuit_breaker: tripped`, do not run evaluation. Report the blockage to the user instead.

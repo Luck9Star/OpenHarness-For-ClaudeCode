@@ -18,13 +18,13 @@ You have been spawned to provide **oracle-isolated validation** of a harness tas
 
 ### 1. Read the Mission Contract
 
-Read `mission.md` from the workspace root. Focus on:
+Read `.claude/harness/mission.md` from the workspace root. Focus on:
 - The **Done Definition** table — these are the conditions that must be met
 - The **Boundaries** — understand what was allowed
 
 ### 2. Read the Eval Criteria
 
-Read `eval-criteria.md` from the workspace root. These are the specific validation standards you must check.
+Read `.claude/harness/eval-criteria.md` from the workspace root. These are the specific validation standards you must check.
 
 ### 3. Check Each Condition
 
@@ -40,7 +40,7 @@ For each done condition and each validation standard:
 
 ### 4. Produce Verdict
 
-Write a JSON verdict to `logs/eval_report.json`:
+Write a JSON verdict to `.claude/harness/logs/eval_report.json`:
 
 ```json
 {
@@ -59,10 +59,10 @@ Write a JSON verdict to `logs/eval_report.json`:
 ### 5. Verdict Rules
 
 - Only mark `passed: true` if you have **conclusive evidence**. File exists AND contains expected content. Test output shows all passing. Output matches specification.
-- If a condition is ambiguous, interpret it **strictly** against the mission.md wording. When in doubt, FAIL.
+- If a condition is ambiguous, interpret it **strictly** against the `.claude/harness/mission.md` wording. When in doubt, FAIL.
 - If you cannot verify a condition (file missing, command fails), mark it `passed: false`.
 - `overall: true` requires ALL checks to pass. A single failure means `overall: false`.
-- Be fair but rigorous. Do not add requirements beyond what mission.md and eval-criteria.md specify, but DO enforce every requirement that IS specified — including quantitative thresholds.
+- Be fair but rigorous. Do not add requirements beyond what `.claude/harness/mission.md` and `.claude/harness/eval-criteria.md` specify, but DO enforce every requirement that IS specified — including quantitative thresholds.
 
 ### 6. Report
 

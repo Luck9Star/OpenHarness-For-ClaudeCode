@@ -14,7 +14,7 @@ You are starting the OpenHarness autonomous development loop. Follow these steps
 Check if an OpenHarness workspace exists in the current directory:
 
 - Look for `.claude/harness-state.json`
-- Look for `mission.md`
+- Look for `.claude/harness/mission.md`
 
 If **no harness workspace exists**:
 1. Ask the user: "No OpenHarness workspace detected. Provide a task description to initialize one, or run `/harness-start` first."
@@ -53,7 +53,7 @@ Extract the `verify_instruction` and `skills` values from the JSON output, then 
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup-harness-loop.sh" <task-name> --mode <mode> [--worktree] --max-iterations <N> --verify "<verify_instruction>" --skills "<skills>"
 ```
 
-Use the task name from `mission.md` (Section 1: Mission Name).
+Use the task name from `.claude/harness/mission.md` (Section 1: Mission Name).
 If verify_instruction or skills are empty/absent in the existing state, omit the corresponding flag.
 
 Verify the output confirms successful initialization.
@@ -72,9 +72,9 @@ Verify the output confirms successful initialization.
 ## Step 5: Read Mission and Begin Execution
 
 Read these files in cache-optimal order:
-1. `mission.md` -- the task contract
-2. `eval-criteria.md` -- validation standards
-3. `playbook.md` -- execution steps
+1. `.claude/harness/mission.md` -- the task contract
+2. `.claude/harness/eval-criteria.md` -- validation standards
+3. `.claude/harness/playbook.md` -- execution steps
 4. `.claude/harness-state.json` -- current state
 
 Update the state file to `status: running`:
@@ -121,12 +121,12 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" update status running
 
 Read these files in this exact order to maximize prompt cache hits:
 
-1. `mission.md` -- static mission definition, rarely changes
-2. `eval-criteria.md` -- acceptance criteria, rarely changes
-3. `playbook.md` -- step-by-step plan, semi-static
+1. `.claude/harness/mission.md` -- static mission definition, rarely changes
+2. `.claude/harness/eval-criteria.md` -- acceptance criteria, rarely changes
+3. `.claude/harness/playbook.md` -- step-by-step plan, semi-static
 4. `.claude/harness-state.json` -- dynamic state (re-read for current step)
 
-Only load `knowledge/*.md` files on demand if the current step references them.
+Only load `.claude/harness/knowledge/*.md` files on demand if the current step references them.
 
 ### 5.5. Execute Current Step
 
@@ -159,7 +159,7 @@ You plan only. Delegate coding to a sub-agent.
 *Dual Mode -- In-Place (worktree: off, default)*
 
 1. Read the current step requirements from the playbook
-2. Construct a detailed prompt with: task, file paths, constraints from mission.md, eval criteria, skills to load
+2. Construct a detailed prompt with: task, file paths, constraints from `.claude/harness/mission.md`, eval criteria, skills to load
 3. Spawn `harness-dev-agent` WITHOUT worktree isolation
 4. Wait for the agent to complete
 5. Log the delegation: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Delegated <step> to harness-dev-agent (in-place)"`
@@ -179,8 +179,8 @@ ALWAYS spawn `harness-review-agent` -- read-only code review.
 
 1. Read the current step description from the playbook
 2. Spawn `harness-review-agent` with the step description and scope
-3. The review agent writes findings to `logs/review_report.json`
-4. Read `logs/review_report.json` to check the verdict:
+3. The review agent writes findings to `.claude/harness/logs/review_report.json`
+4. Read `.claude/harness/logs/review_report.json` to check the verdict:
    - `pass` -- log and proceed
    - `conditional-pass` -- log warnings, proceed but note issues
    - `fail` -- log critical issues, next fix step will address them
@@ -191,7 +191,7 @@ ALWAYS spawn `harness-review-agent` -- read-only code review.
 
 Read the review report, then apply fixes.
 
-1. Read `logs/review_report.json`
+1. Read `.claude/harness/logs/review_report.json`
 2. If report is missing or overall verdict was `pass`, skip -- log and advance
 3. Extract issue list
 
@@ -230,12 +230,12 @@ Spawn `harness-eval-agent` for independent validation.
 ### 5.6. Run Validation
 
 After step execution (except review steps), validate by spawning `harness-eval-agent` with:
-- The eval criteria from `eval-criteria.md`
+- The eval criteria from `.claude/harness/eval-criteria.md`
 - The current step description
 - The verify_instruction (if set in state) -- the agent interprets this independently
 - Instructions to independently verify without reading your implementation
 
-The eval-agent checks file existence, runs verify commands, and evaluates semantic criteria. It reports PASS or FAIL in `logs/eval_report.json`.
+The eval-agent checks file existence, runs verify commands, and evaluates semantic criteria. It reports PASS or FAIL in `.claude/harness/logs/eval_report.json`.
 
 ### 5.7. On PASS -- Update State
 
@@ -283,7 +283,7 @@ After each successful step, check:
 
 1. Are all playbook steps marked as completed?
 2. Have all eval criteria been verified by the eval-agent?
-3. Is the mission.md done condition satisfied?
+3. Is the `.claude/harness/mission.md` done condition satisfied?
 
 If ALL three are true:
 
@@ -315,7 +315,7 @@ Events worth logging:
 
 ## Completion Signal
 
-When ALL done conditions in mission.md Section 3 are verified by eval-agent AND all playbook steps are complete, output:
+When ALL done conditions in `.claude/harness/mission.md` Section 3 are verified by eval-agent AND all playbook steps are complete, output:
 
 ```
 <promise>LOOP_DONE</promise>

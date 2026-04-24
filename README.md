@@ -49,10 +49,10 @@ git clone https://github.com/Luck9Star/OpenHarness-For-ClaudeCode ~/.claude/plug
 **这条命令会做什么：**
 
 1. 在当前项目目录下创建 `.claude/harness-state.json`（状态文件）
-2. 生成 `mission.md` — 任务合约，定义"做什么"和"什么算完成"
-3. 生成 `playbook.md` — 执行步骤，Agent 按步骤执行
-4. 生成 `eval-criteria.md` — 验证标准，每步完成后外部验证
-5. 生成 `progress.md` — 进度日志，记录每次执行结果
+2. 生成 `.claude/harness/mission.md` — 任务合约，定义"做什么"和"什么算完成"
+3. 生成 `.claude/harness/playbook.md` — 执行步骤，Agent 按步骤执行
+4. 生成 `.claude/harness/eval-criteria.md` — 验证标准，每步完成后外部验证
+5. 生成 `.claude/harness/progress.md` — 进度日志，记录每次执行结果
 
 **参数说明：**
 
@@ -178,7 +178,7 @@ Agent 开始自主工作，通过 stop-hook 驱动循环执行。**推荐使用 
 /harness-start "Add payment integration" --verify "All payment flows complete successfully with no test failures"
 ```
 
-如果不指定 `--verify`，eval-agent 仍会根据 `eval-criteria.md` 做结构性验证（检查文件是否存在、内容是否合理等），但缺少针对性的语义验证。
+如果不指定 `--verify`，eval-agent 仍会根据 `.claude/harness/eval-criteria.md` 做结构性验证（检查文件是否存在、内容是否合理等），但缺少针对性的语义验证。
 
 ## 任务编写指南
 
@@ -293,7 +293,7 @@ Agent 自己规划步骤，自己写代码，但**验证环节由独立的 eval-
 flowchart TD
     A["/harness-start<br/>描述 + --from-plan + --verify + --skills"] --> B["质量偏好提问<br/>审查轮数 / TDD / 自动修复"]
     B --> C["动态生成 Playbook<br/>implement / review / fix / verify 步骤"]
-    C --> D["生成合约文件<br/>mission.md / playbook.md<br/>eval-criteria.md / progress.md"]
+    C --> D["生成合约文件<br/>.claude/harness/mission.md / playbook.md<br/>eval-criteria.md / progress.md"]
     D --> E["/harness-dev<br/>启动开发循环"]
     E --> F{"断路器<br/>是否触发？"}
     F -- 是 --> STOP["停止，等待人工干预"]
@@ -335,8 +335,8 @@ AI 质量偏好提问:
   "验证失败自动修复？" → "是"
 
 插件动态生成:
-  mission.md      → 定义目标：实现 JWT 认证，所有测试通过
-  playbook.md     → 步骤：
+  .claude/harness/mission.md → 定义目标：实现 JWT 认证，所有测试通过
+  .claude/harness/playbook.md → 步骤：
     Step 1 (verify)    → 编写测试用例
     Step 2 (implement) → 实现 auth.middleware.js
     Step 3 (review)    → review-agent 审查代码质量
@@ -344,8 +344,8 @@ AI 质量偏好提问:
     Step 5 (review)    → 第二轮审查
     Step 6 (fix)       → 根据第二轮意见修复
     Step 7 (verify)    → eval-agent 独立验证
-  eval-criteria.md → 验证：测试通过、中间件文件存在、路由受保护
-  harness-state.json → 状态：idle, Step 1
+  .claude/harness/eval-criteria.md → 验证：测试通过、中间件文件存在、路由受保护
+  .claude/harness-state.json → 状态：idle, Step 1
 
 你启动循环:
   /harness-dev
@@ -371,7 +371,7 @@ AI 质量偏好提问:
 | 断路器 | 连续 3 次验证失败后自动停止，防止无限循环浪费 token |
 | PreToolUse Hook | 保护 `.claude/harness-state.json` 不被 Agent 直接修改 |
 | Oracle 隔离 | eval-agent 无法看到主 Agent 的推理过程，只看工作区产物 |
-| 任务修改接口 | `mission.md`、`playbook.md` 等合约文件只能通过 `/harness-edit` 修改 |
+| 任务修改接口 | `.claude/harness/` 下的合约文件只能通过 `/harness-edit` 修改 |
 
 ## 架构
 

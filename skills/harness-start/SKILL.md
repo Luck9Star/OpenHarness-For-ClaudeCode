@@ -48,17 +48,18 @@ If arguments provided all required info (mode, verify, etc.), use what was given
 
 ## Step 3: Determine Workspace Path
 
-The workspace is the current project directory. Harness files will be created at the project root:
+The workspace is the current project directory. Harness files will be created under `.claude/harness/`:
 
 ```
 <project-root>/
-  mission.md
-  playbook.md
-  eval-criteria.md
-  progress.md
   .claude/
     harness-state.json
-  logs/
+    harness/
+      mission.md
+      playbook.md
+      eval-criteria.md
+      progress.md
+      logs/
 ```
 
 Use the current working directory as the project root.
@@ -74,7 +75,12 @@ Derive a concise task name from the task description:
 
 Copy the templates from `${CLAUDE_PLUGIN_ROOT}/templates/` and fill them completely. Every `[placeholder]` must be replaced with concrete, task-specific content.
 
-### mission.md
+**All files must be written to `.claude/harness/` directory** — create the directory first:
+```bash
+mkdir -p .claude/harness/logs
+```
+
+### .claude/harness/mission.md
 
 Fill based on the task description:
 - **Mission Name**: the task name from Step 4
@@ -84,14 +90,14 @@ Fill based on the task description:
 - **Execution Parameters**: set verify_instruction and execution_mode from user input
 - **Output Definition**: describe expected output artifacts
 
-### playbook.md
+### .claude/harness/playbook.md
 
 Create a concrete step-by-step plan using the quality profile from Step 2.
 
 **Step types** (each step must have a `Type` field):
 - `implement` -- write/create/modify code
 - `review` -- spawn harness-review-agent for read-only code review
-- `fix` -- apply fixes based on review feedback (reads `logs/review_report.json`)
+- `fix` -- apply fixes based on review feedback (reads `.claude/harness/logs/review_report.json`)
 - `verify` -- spawn harness-eval-agent for validation
 - `human-review` -- pause loop for human inspection and approval
 
@@ -115,7 +121,7 @@ Create a concrete step-by-step plan using the quality profile from Step 2.
 - Add a dependency diagram at the bottom
 - The final step should always be a `verify` step
 
-### eval-criteria.md
+### .claude/harness/eval-criteria.md
 
 Create validation standards:
 - At least 2-3 standards covering key outputs
@@ -123,10 +129,10 @@ Create validation standards:
 - Each standard: check name, method, pass condition, on-fail action
 - Keep all checks machine-verifiable
 
-### progress.md
+### .claude/harness/progress.md
 
 Initialize with:
-- Task name, current timestamp, conditions count from mission.md
+- Task name, current timestamp, conditions count from `.claude/harness/mission.md`
 - All conditions set to `Not Met`
 - Empty execution history section
 
@@ -138,17 +144,17 @@ Run the state manager to create the JSON state file:
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py init <task-name> --mode <mode> --verify "<verify-instruction>" --skills "<skills>"
 ```
 
-This creates `.claude/harness-state.json` and `logs/execution_stream.log`.
+This creates `.claude/harness-state.json` and `.claude/harness/logs/execution_stream.log`.
 
 ## Step 7: Verify Initialization
 
 After all files are written, confirm:
-1. `mission.md` exists at project root and has no `[placeholder]` markers
-2. `playbook.md` exists at project root and has no `[placeholder]` markers
-3. `eval-criteria.md` exists at project root and has no `[placeholder]` markers
-4. `progress.md` exists at project root
+1. `.claude/harness/mission.md` exists and has no `[placeholder]` markers
+2. `.claude/harness/playbook.md` exists and has no `[placeholder]` markers
+3. `.claude/harness/eval-criteria.md` exists and has no `[placeholder]` markers
+4. `.claude/harness/progress.md` exists
 5. `.claude/harness-state.json` exists
-6. `logs/` directory exists
+6. `.claude/harness/logs/` directory exists
 
 If any file is missing or contains `[placeholder]`, fix it before reporting ready.
 
@@ -164,11 +170,11 @@ Mode: <single|dual>
 Verify: <instruction or "none">
 
 Files created:
-  mission.md        -- objective, done conditions, boundaries
-  playbook.md       -- <N> execution steps
-  eval-criteria.md  -- <N> validation standards
-  progress.md       -- blank tracking log
-  .claude/harness-state.json -- state file
+  .claude/harness/mission.md        -- objective, done conditions, boundaries
+  .claude/harness/playbook.md       -- <N> execution steps
+  .claude/harness/eval-criteria.md  -- <N> validation standards
+  .claude/harness/progress.md       -- blank tracking log
+  .claude/harness-state.json        -- state file
 
 Ready to start execution. Run /harness-dev to begin.
 ```

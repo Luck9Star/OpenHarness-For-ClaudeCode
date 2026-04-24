@@ -152,7 +152,7 @@ def main():
         sys.exit(0)
 
     # Check 2: Mission boundary enforcement
-    mission_path = harness_root / "mission.md"
+    mission_path = harness_root / ".claude/harness/mission.md"
     if mission_path.exists():
         prohibited_patterns = read_prohibited_patterns(mission_path)
         matched, match_reason = path_matches_prohibited(file_path, prohibited_patterns)

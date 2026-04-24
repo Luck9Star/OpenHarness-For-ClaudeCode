@@ -43,7 +43,7 @@ CORE_ESCAPED=$(escape_for_json "$CORE_CONTENT")
 STATE_ESCAPED=$(escape_for_json "$STATE_SUMMARY")
 
 # Build context injection
-CONTEXT="<EXTREMELY_IMPORTANT>\nYou are in an active OpenHarness workspace.\n\n**Below is the full content of the harness-core skill — your behavioral foundation for this session:**\n\n${CORE_ESCAPED}\n\n**Current harness state:**\n\n${STATE_ESCAPED}\n\nRead mission.md, playbook.md, and eval-criteria.md before taking any action.\n</EXTREMELY_IMPORTANT>"
+CONTEXT="<EXTREMELY_IMPORTANT>\nYou are in an active OpenHarness workspace.\n\n**Below is the full content of the harness-core skill — your behavioral foundation for this session:**\n\n${CORE_ESCAPED}\n\n**Current harness state:**\n\n${STATE_ESCAPED}\n\nRead .claude/harness/mission.md, .claude/harness/playbook.md, and .claude/harness/eval-criteria.md before taking any action.\n</EXTREMELY_IMPORTANT>"
 
 # Output context injection — platform-aware
 if [ -n "${CURSOR_PLUGIN_ROOT:-}" ]; then
