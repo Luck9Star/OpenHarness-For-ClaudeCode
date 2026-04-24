@@ -1,34 +1,148 @@
 ---
 name: harness-start
-description: Initialize a new OpenHarness autonomous development task. Parses arguments, discovers quality preferences, generates workspace files from templates, initializes JSON state. Trigger: /harness-start.
-argument-hint: "TASK_DESCRIPTION [--mode single|dual] [--verify INSTRUCTION] [--from-plan PATH] [--skills SKILL1,SKILL2]"
-allowed-tools: ["Bash", "Read", "Write", "Edit"]
+description: Initialize a new OpenHarness autonomous development task. Interactive wizard refines task description, verify instruction, and skill selection through multi-turn dialogue. Trigger: /harness-start.
+argument-hint: "TASK_DESCRIPTION [--mode single|dual] [--verify INSTRUCTION] [--from-plan PATH] [--skills SKILL1,SKILL2] [--quick]"
+allowed-tools: ["Bash", "Read", "Write", "Edit", "Grep", "Glob"]
 ---
 
 # /harness-start
 
 Initialize a new OpenHarness autonomous development task workspace.
 
-## Step 1: Parse Arguments
+## Step 0: Parse Arguments & Detect Mode
 
 Parse the user's arguments from `$ARGUMENTS`:
 
 - **Task description**: everything before any `--` flags (can supplement `--from-plan`, see below)
 - **Mode**: `--mode single` (default) or `--mode dual`
-- **Verify instruction**: `--verify "natural language instruction"` (optional) -- an AI instruction for the eval-agent to interpret, e.g., `--verify "ensure all tests pass"` or `--verify "API endpoints return correct status codes"`
-- **Skills**: `--skills "skill1,skill2"` (optional) -- comma-separated list of skill names for the dev-agent to load during implementation
-- **From plan**: `--from-plan <file-path>` (optional) -- use a plan file as the task source
+- **Verify instruction**: `--verify "natural language instruction"` (optional)
+- **Skills**: `--skills "skill1,skill2"` (optional)
+- **From plan**: `--from-plan <file-path>` (optional)
+- **Quick**: `--quick` (optional) — force skip wizard, use args as-is
 
 **Combination rules:**
 - Description only -> use description as the task
 - `--from-plan` only -> derive everything from the plan file
 - **Both** -> plan provides structure (steps, architecture), description provides supplementary context and clarification. Merge them: plan is the base, description adds scope clarification, priority hints, or constraints the plan doesn't cover.
 
-If neither is provided, prompt the user:
+**Mode detection — Quick vs Wizard:**
 
+Quick mode activates when ALL of these are true:
+1. Task description (or `--from-plan`) is provided
+2. `--verify` is provided with non-empty content
+3. User explicitly passes `--quick`, OR mode + skills are both specified
+
+Wizard mode activates when ANY critical parameter is missing:
+- No task description and no `--from-plan`
+- No `--verify` instruction
+- Or the user simply typed `/harness-start` with no arguments
+
+If neither description nor `--from-plan` is provided and wizard mode wasn't obvious:
 ```
 What task would you like the harness to execute? Describe it in one sentence.
 ```
+
+## Step 1: Wizard — Task Refinement (Wizard Mode Only)
+
+Skip this entire step in Quick mode — go directly to Step 2.
+
+### Step 1A: Analyze Codebase & Expand Task Description
+
+Before refining the task, briefly analyze the current project:
+
+1. **Detect tech stack**: Use Glob to find key config files (`package.json`, `Cargo.toml`, `pyproject.toml`, `go.mod`, etc.) and determine language/framework
+2. **Scan project structure**: List top-level directories and key entry points
+3. **Check existing tests**: Find test directories/files to understand test patterns
+
+Then, expand the user's task description:
+
+- Add concrete scope boundaries based on the codebase structure
+- Identify which files/modules are likely involved
+- Clarify ambiguous terms using project context
+- Add implementation constraints (follow existing patterns, match conventions)
+
+Present the expanded task description to the user:
+
+```
+Based on the project analysis, here's the expanded task:
+
+[Expanded description with concrete scope, affected modules, and constraints]
+
+Affected areas:
+- [module/file 1]: [what changes here]
+- [module/file 2]: [what changes here]
+
+Does this look correct? Any adjustments?
+```
+
+Wait for user confirmation. Incorporate any feedback before proceeding.
+
+### Step 1B: Define Deliverables
+
+From the expanded task description, enumerate concrete deliverables:
+
+```
+Based on the task scope, the deliverables will be:
+
+1. [Deliverable 1 — e.g., "src/auth/middleware.ts: JWT authentication middleware"]
+2. [Deliverable 2 — e.g., "tests/auth/middleware.test.ts: Unit tests covering token validation"]
+3. [Deliverable 3 — e.g., "Updated route handlers to use middleware"]
+
+Is this the right scope? Anything to add or remove?
+```
+
+Each deliverable must be:
+- A concrete file or file section (not a vague "improve X")
+- Tied to a specific module/area from Step 1A
+- Independently verifiable
+
+Wait for user confirmation.
+
+### Step 1C: Derive Verify Instruction
+
+Generate a `--verify` instruction from the deliverables. The instruction must be:
+- **Quantified**: use numbers, not "thorough" or "complete"
+- **Machine-verifiable**: eval-agent can check each condition by running commands or reading files
+- **Cover all deliverables**: one check per deliverable minimum
+
+```
+Based on the deliverables, here's the proposed verify instruction:
+
+--verify "
+1. [Check for deliverable 1 — e.g., "auth middleware file exists and exports correct functions"]
+2. [Check for deliverable 2 — e.g., "all unit tests pass (npm test)"]
+3. [Check for deliverable 3 — e.g., "protected routes return 401 without valid token"]
+"
+
+Each check maps directly to a deliverable. Want to adjust any checks?
+```
+
+If the user already provided `--verify`, present the derived version alongside and ask which they prefer.
+
+Wait for user confirmation. Use the final confirmed verify instruction.
+
+### Step 1D: Recommend Skills
+
+Based on the tech stack detected in Step 1A and the deliverables, recommend skills:
+
+```
+Based on the tech stack and task type, these skills may help:
+
+Recommended:
+- [skill-name]: [reason — e.g., "project uses React, skill provides component patterns"]
+
+Optional:
+- [skill-name]: [reason — e.g., "task involves API design, skill provides REST patterns"]
+
+Skip:
+- [skill-name]: [reason — e.g., "no database changes needed"]
+
+Use recommended skills? Or adjust the list?
+```
+
+If the user already specified `--skills`, validate them against the tech stack and note any gaps.
+
+Wait for user confirmation. Use the final confirmed skill list.
 
 ## Step 1.5: Workspace Overwrite Check
 
@@ -98,13 +212,13 @@ mkdir -p .claude/harness/logs
 
 ### .claude/harness/mission.md
 
-Fill based on the task description:
+Fill based on the task description (use the expanded version from Step 1A if wizard was used):
 - **Mission Name**: the task name from Step 4
-- **Mission Objective**: the user's task description
-- **Done Definition**: derive 2-4 concrete, machine-verifiable completion conditions
+- **Mission Objective**: the user's task description (expanded version if wizard refined it)
+- **Done Definition**: derive from the verified deliverables in Step 1B — each deliverable maps to a done condition
 - **Boundaries**: set allowed/prohibited operations
 - **Execution Parameters**: set verify_instruction and execution_mode from user input
-- **Output Definition**: describe expected output artifacts
+- **Output Definition**: list the confirmed deliverables from Step 1B
 
 ### .claude/harness/playbook.md
 
@@ -136,14 +250,16 @@ Create a concrete step-by-step plan using the quality profile from Step 2.
 - Steps should be ordered by dependency
 - Add a dependency diagram at the bottom
 - The final step should always be a `verify` step
+- When wizard was used, align steps with the deliverables from Step 1B
 
 ### .claude/harness/eval-criteria.md
 
-Create validation standards:
-- At least 2-3 standards covering key outputs
-- Include a "verify_instruction passes" standard if a verify instruction was provided
+Create validation standards based on the verify instruction:
+- Start with the verified checks from Step 1C — each check becomes a standard
+- Add structural validation standards (file existence, content plausibility)
 - Each standard: check name, method, pass condition, on-fail action
 - Keep all checks machine-verifiable
+- Ensure every deliverable from Step 1B has at least one corresponding check
 
 ### .claude/harness/progress.md
 
@@ -184,6 +300,7 @@ Harness workspace initialized.
 Task: <task-name>
 Mode: <single|dual>
 Verify: <instruction or "none">
+Skills: <skills or "none">
 
 Files created:
   .claude/harness/mission.md        -- objective, done conditions, boundaries
@@ -202,3 +319,5 @@ Ready to start execution. Run /harness-dev to begin.
 - The verify instruction is a natural language AI instruction (not a shell command). It tells the eval-agent what to check.
 - Always run state-manager.py as the last step -- it creates the `.claude/` directory and state file.
 - When using `--from-plan`, faithfully reflect the plan's structure.
+- In wizard mode, each confirmation step must complete before moving to the next.
+- In quick mode, skip Steps 1A-1D entirely and use the provided arguments as-is.
