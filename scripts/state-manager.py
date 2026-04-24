@@ -7,6 +7,7 @@ that persists across /loop iterations.
 Usage:
     state-manager.py read          Print current state as JSON
     state-manager.py init [opts]   Initialize a new state file
+                                      --force  Overwrite even if active workspace exists
     state-manager.py update KEY VAL  Update a field
     state-manager.py log MESSAGE   Append to execution stream (L3)
     state-manager.py report SUBTASK STRATEGY VERIFICATION STATE_TARGET
@@ -15,6 +16,7 @@ Usage:
     state-manager.py fail          Increment consecutive_failures
     state-manager.py reset-fail    Reset consecutive_failures to 0
     state-manager.py trip-breaker  Set circuit_breaker to tripped
+    state-manager.py archive       Archive current workspace files
 """
 
 import sys
@@ -78,6 +80,7 @@ def cmd_init(args):
     max_iterations = 0
     worktree = "off"
     skills = ""
+    force = False
 
     i = 1
     while i < len(args):
@@ -96,12 +99,31 @@ def cmd_init(args):
         elif args[i] == "--skills" and i + 1 < len(args):
             skills = args[i + 1]
             i += 2
+        elif args[i] == "--force":
+            force = True
+            i += 1
         else:
             i += 1
 
     state_dir = Path.cwd() / ".claude"
     state_dir.mkdir(parents=True, exist_ok=True)
     state_path = state_dir / "harness-state.json"
+
+    # Overwrite protection: refuse to clobber an active workspace
+    if state_path.exists() and not force:
+        try:
+            existing = json.loads(state_path.read_text())
+            existing_status = existing.get("status", "")
+            existing_task = existing.get("task_name", "unknown")
+            if existing_status not in ("mission_complete", "failed"):
+                print(
+                    f"ERROR: Active workspace exists (task: '{existing_task}', "
+                    f"status: {existing_status}). Use --force to overwrite.",
+                    file=sys.stderr
+                )
+                sys.exit(1)
+        except (json.JSONDecodeError, OSError):
+            pass  # corrupted file, allow overwrite
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -242,6 +264,50 @@ def cmd_report(args):
         f.write(f"[{now}] - State Target: {state_target}\n")
 
 
+def cmd_archive(args):
+    """Archive current workspace files before overwrite."""
+    import shutil
+    state_path = find_state_file()
+    if not state_path:
+        print("No workspace to archive", file=sys.stderr)
+        sys.exit(0)  # not an error, just nothing to archive
+
+    state = read_state(state_path)
+    task_name = state.get("task_name", "untitled")
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    archive_dir = Path.cwd() / ".claude/harness/archive" / f"{task_name}-{timestamp}"
+    archive_dir.mkdir(parents=True, exist_ok=True)
+
+    harness_dir = Path.cwd() / ".claude/harness"
+    files_to_archive = ["mission.md", "playbook.md", "eval-criteria.md", "progress.md"]
+
+    archived = []
+    for f in files_to_archive:
+        src = harness_dir / f
+        if src.exists():
+            shutil.move(str(src), str(archive_dir / f))
+            archived.append(f)
+
+    # Archive logs directory
+    logs_src = harness_dir / "logs"
+    if logs_src.exists() and any(logs_src.iterdir()):
+        shutil.copytree(str(logs_src), str(archive_dir / "logs"))
+        # Don't remove original logs - they may be needed
+        archived.append("logs/")
+
+    if archived:
+        print(json.dumps({
+            "status": "archived",
+            "path": str(archive_dir),
+            "files": archived,
+            "task_name": task_name
+        }))
+    else:
+        # Nothing to archive, remove empty dir
+        archive_dir.rmdir()
+        print(json.dumps({"status": "nothing_to_archive"}))
+
+
 COMMANDS = {
     "read": cmd_read,
     "init": cmd_init,
@@ -252,6 +318,7 @@ COMMANDS = {
     "fail": cmd_fail,
     "reset-fail": cmd_reset_fail,
     "trip-breaker": cmd_trip_breaker,
+    "archive": cmd_archive,
 }
 
 

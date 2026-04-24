@@ -30,6 +30,22 @@ If neither is provided, prompt the user:
 What task would you like the harness to execute? Describe it in one sentence.
 ```
 
+## Step 1.5: Workspace Overwrite Check
+
+Before generating any files, check if an existing harness workspace is active:
+
+Read `.claude/harness-state.json`. If it exists:
+- If status is `running` or `idle`: warn the user that an active workspace exists, show the task name and status. Ask: "This will overwrite the existing workspace. Continue? (yes/no)"
+  - If the user confirms, add `--force` to the state-manager.py init command in Step 6
+  - If the user declines, stop and suggest `/harness-status` or `/harness-edit`
+- If status is `mission_complete` or `failed`: proceed without warning (old task is done). `--force` is not needed for terminal statuses.
+
+**In all cases where an existing workspace is detected**, archive the old workspace immediately (before Step 5 writes new files):
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" archive
+```
+
 ## Step 2: Quality Preference Discovery
 
 Ask the user (combine into a single prompt):
@@ -141,10 +157,10 @@ Initialize with:
 Run the state manager to create the JSON state file:
 
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py init <task-name> --mode <mode> --verify "<verify-instruction>" --skills "<skills>"
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py init <task-name> --mode <mode> --verify "<verify-instruction>" --skills "<skills>" [--force]
 ```
 
-This creates `.claude/harness-state.json` and `.claude/harness/logs/execution_stream.log`.
+Use `--force` only if the user confirmed overwrite in Step 1.5. This creates `.claude/harness-state.json` and `.claude/harness/logs/execution_stream.log`.
 
 ## Step 7: Verify Initialization
 

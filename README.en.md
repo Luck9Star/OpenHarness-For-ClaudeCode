@@ -71,6 +71,13 @@ Tell Claude Code what you want done. The plugin auto-generates contract files.
 
 > *At least one of task description or `--from-plan` is required. When both are provided, the plan provides structure (steps, architecture) and the description adds supplementary context and constraints.
 
+**Task overwrite behavior:** Each project directory supports only one active harness task at a time. Running `/harness-start` again:
+
+- If an active task exists (status `running` or `idle`), you'll be prompted for confirmation before overwriting
+- Completed (`mission_complete`) or failed (`failed`) tasks can be overwritten without confirmation
+- Before overwriting, the old task's workspace files are automatically archived to `.claude/harness/archive/{task-name}-{timestamp}/`
+- The last 5 archives are kept; older ones are pruned by `cleanup.py`
+
 ### Dynamic Workflow Generation
 
 During initialization, the AI asks targeted quality questions based on task complexity:
@@ -196,15 +203,25 @@ error handling consistency, public API Rust idioms, concurrency safety.
 Each issue tagged critical/major/minor." \
   --verify "Review report file exists, each crate has >=3 specific findings,
 all critical findings have fix suggestions"
+```
 
+After Task 1 completes (`/harness-dev` loop exits), run:
+
+```bash
 # Task 2: CLI alignment
 /harness-start "Check Rust CLI vs Python CLI alignment, fix all differences" \
   --verify "Alignment report exists and all E2E CLI tests pass"
+```
 
+After Task 2 completes, run:
+
+```bash
 # Task 3: Performance optimization
 /harness-start "Check and optimize Rust performance bottlenecks" \
   --verify "All benchmarks within thresholds, no performance regression"
 ```
+
+> **Important:** Split tasks must be executed **sequentially and independently** — each task runs its full `/harness-start` → `/harness-dev` → `LOOP_DONE` cycle before the next one starts. Do not run multiple `/harness-start` commands in sequence expecting them to queue — the later one will overwrite the earlier one.
 
 **Scheme B: Single Task with Multi-Dimensional Verify**
 

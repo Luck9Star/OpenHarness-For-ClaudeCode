@@ -66,6 +66,13 @@ git clone https://github.com/Luck9Star/OpenHarness-For-ClaudeCode ~/.claude/plug
 
 > *任务描述和 `--from-plan` 至少提供一个。两者都提供时，方案提供结构（步骤、架构），描述补充上下文和约束。
 
+**任务覆盖机制：** 每个项目目录同一时间只能有一个活跃 harness 任务。再次执行 `/harness-start` 时：
+
+- 如果已有活跃任务（status 为 `running` 或 `idle`），会提示确认，需要用户同意才会覆盖
+- 已完成（`mission_complete`）或已失败（`failed`）的任务可直接覆盖，无需确认
+- 覆盖前，旧任务的 workspace 文件会自动归档到 `.claude/harness/archive/{任务名}-{时间戳}/`
+- 归档保留最近 5 份，更早的由 `cleanup.py` 自动清理
+
 ### 动态工作流生成
 
 初始化时，AI 会根据任务复杂度询问质量偏好：
@@ -204,15 +211,25 @@ Agent 开始自主工作，通过 stop-hook 驱动循环执行。**推荐使用 
 public API 惯用法、并发安全性。每个问题标注 critical/major/minor。" \
   --verify "评审报告文件存在，每个 crate 有 >=3 条具体发现，
 所有 critical 发现都有修复建议"
+```
 
+等任务 1 完成后（`/harness-dev` 循环退出），再执行：
+
+```bash
 # 任务 2：CLI 对齐
 /harness-start "检查 Rust CLI 与 Python CLI 的对齐，修复所有差异" \
   --verify "对齐报告存在且所有 E2E CLI 测试通过"
+```
 
+等任务 2 完成后，再执行：
+
+```bash
 # 任务 3：性能优化
 /harness-start "检查并优化 Rust 性能瓶颈" \
   --verify "benchmark 全部在阈值内，无性能回归"
 ```
+
+> **重要：** 拆分的任务必须**依次独立执行**——每个任务走完完整的 `/harness-start` → `/harness-dev` → `LOOP_DONE` 流程后，再开始下一个。不能在同一会话中连续执行多次 `/harness-start` 期望它们排队执行，因为后一个会覆盖前一个。
 
 **方案 B：单任务但 verify 覆盖全维度**
 

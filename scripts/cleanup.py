@@ -26,6 +26,7 @@ STATE_FILE = ".claude/harness-state.json"
 LOG_FILE = ".claude/harness/logs/execution_stream.log"
 PROGRESS_FILE = ".claude/harness/progress.md"
 DREAM_JOURNAL = ".claude/harness/logs/dream_journal.md"
+ARCHIVE_DIR = ".claude/harness/archive"
 
 # Temp file patterns to clean
 TEMP_PATTERNS = ["*.tmp", "*.bak", "*.swp", "*~", ".DS_Store"]
@@ -184,6 +185,30 @@ def cleanup_temp(base_path):
         report("temp", f"Cleaned {cleaned} temporary file(s).")
 
 
+def cleanup_archives(base_path):
+    """Keep only the last 5 archive directories, deleting older ones."""
+    archive_path = base_path / ARCHIVE_DIR
+    if not archive_path.exists():
+        report("archives", "No archive directory found — nothing to do.")
+        return
+
+    archives = sorted(
+        [d for d in archive_path.iterdir() if d.is_dir()],
+        key=lambda d: d.stat().st_mtime,
+    )
+
+    if len(archives) <= 5:
+        report("archives", f"{len(archives)} archive(s) found — under limit of 5, no pruning needed.")
+        return
+
+    to_delete = archives[:-5]
+    for d in to_delete:
+        shutil.rmtree(d)
+        report("archives", f"Deleted old archive: {d.name}")
+
+    report("archives", f"Pruned {len(to_delete)} old archive(s), kept {len(archives) - len(to_delete)}.")
+
+
 def main():
     base_path = Path.cwd()
 
@@ -194,6 +219,7 @@ def main():
     do_progress = do_all or "--progress" in args
     do_state = do_all or "--state" in args
     do_temp = do_all or "--temp" in args
+    do_archives = do_all or "--archives" in args
 
     print(f"=== OpenHarness Cleanup Report ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')}) ===")
     print()
@@ -216,6 +242,11 @@ def main():
     if do_temp:
         print("[temp] Checking for temporary files...")
         cleanup_temp(base_path)
+        print()
+
+    if do_archives:
+        print("[archives] Checking old archives...")
+        cleanup_archives(base_path)
         print()
 
     print("=== Cleanup Complete ===")
