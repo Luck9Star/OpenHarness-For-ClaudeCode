@@ -3,3 +3,6 @@ logs/
 *.pyc
 __pycache__/
 .DS_Store
+.playwright-mcp/
+.serena/
+AGENTS.md

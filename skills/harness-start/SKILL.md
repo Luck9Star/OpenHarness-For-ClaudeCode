@@ -1,6 +1,6 @@
 ---
 name: harness-start
-description: Initialize a new OpenHarness autonomous development task. Interactive wizard refines task description, verify instruction, and skill selection through multi-turn dialogue. Trigger: /harness-start.
+description: "Initialize a new OpenHarness autonomous development task. Interactive wizard refines task description, verify instruction, and skill selection through multi-turn dialogue. Trigger: /harness-start."
 argument-hint: "TASK_DESCRIPTION [--mode single|dual] [--verify INSTRUCTION] [--from-plan PATH] [--skills SKILL1,SKILL2] [--quick]"
 allowed-tools: ["Bash", "Read", "Write", "Edit", "Grep", "Glob"]
 ---

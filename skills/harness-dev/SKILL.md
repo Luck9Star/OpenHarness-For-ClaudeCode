@@ -1,8 +1,8 @@
 ---
 name: harness-dev
-description: Autonomous development loop for OpenHarness. Parses arguments, manages loop state, executes playbook steps via single or dual mode, validates via eval-agent. Trigger: /harness-dev.
+description: "Autonomous development loop for OpenHarness. Parses arguments, manages loop state, executes playbook steps via single or dual mode, validates via eval-agent. Trigger: /harness-dev."
 argument-hint: "[--mode single|dual] [--max-iterations N] [--resume]"
-allowed-tools: ["Bash", "Agent", "Read", "Write", "Edit"]
+allowed-tools: ["Bash", "Task", "Read", "Write", "Edit"]
 ---
 
 # /harness-dev -- Autonomous Development Loop

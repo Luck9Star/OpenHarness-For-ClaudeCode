@@ -5,7 +5,13 @@
   "author": {
     "name": "openharness-cc contributors"
   },
-  "agents": "./agents",
-  "skills": "./skills",
-  "hooks": "./hooks/hooks.json"
+  "skills": [
+    "./skills/harness-core",
+    "./skills/harness-dev",
+    "./skills/harness-dream",
+    "./skills/harness-edit",
+    "./skills/harness-eval",
+    "./skills/harness-start",
+    "./skills/harness-status"
+  ]
 }

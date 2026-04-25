@@ -1,6 +1,6 @@
 ---
 name: harness-edit
-description: Modify an existing OpenHarness task (verify instruction, mission, playbook, eval criteria). Bypasses PreToolUse hook for protected files. Trigger: /harness-edit.
+description: "Modify an existing OpenHarness task (verify instruction, mission, playbook, eval criteria). Bypasses PreToolUse hook for protected files. Trigger: /harness-edit."
 argument-hint: "[--verify INSTRUCTION] [--mission TEXT] [--playbook-step N TEXT] [--append-step TEXT] [--mode single|dual]"
 allowed-tools: ["Bash", "Read", "Write", "Edit"]
 ---

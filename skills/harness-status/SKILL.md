@@ -1,6 +1,6 @@
 ---
 name: harness-status
-description: Show current OpenHarness workspace status. Reads state file and mission, displays progress, warnings, and suggested actions. Trigger: /harness-status.
+description: "Show current OpenHarness workspace status. Reads state file and mission, displays progress, warnings, and suggested actions. Trigger: /harness-status."
 argument-hint: ""
 allowed-tools: ["Bash", "Read"]
 ---

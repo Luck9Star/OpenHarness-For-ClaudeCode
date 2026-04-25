@@ -1,6 +1,6 @@
 ---
 name: harness-dream
-description: Offline memory consolidation for OpenHarness. Analyzes execution patterns, consolidates knowledge files, prunes stale state. Run during idle periods via a separate /loop.
+description: "Offline memory consolidation for OpenHarness. Analyzes execution patterns, consolidates knowledge files, prunes stale state. Run during idle periods via a separate /loop."
 ---
 
 # Harness Dream | Memory Consolidation
