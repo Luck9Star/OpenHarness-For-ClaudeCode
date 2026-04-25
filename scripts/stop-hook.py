@@ -107,6 +107,7 @@ def main():
     iteration = state.get("iteration", 0)
     max_iterations = state.get("max_iterations", 0)
     state_session = state.get("session_id", "")
+    loop_mode = state.get("loop_mode", "in-session")  # "in-session" or "clean"
 
     # Validate numeric fields
     try:
@@ -217,10 +218,54 @@ def main():
     except Exception:
         pass  # cleanup is best-effort, never block the loop
 
-    # Build continuation prompt
-    continuation_prompt = "Continue harness execution. Read .claude/harness-state.json for current state, then read .claude/harness/mission.md, .claude/harness/playbook.md, .claude/harness/eval-criteria.md in cache-optimal order. Execute the NEXT playbook step (only one step). After completing the step and running validation, end your turn — the loop will continue automatically."
+    # Build continuation prompt — explicitly instruct agent to ignore prior context
+    # to prevent stale "completed" signals from earlier iterations
+    if loop_mode == "clean":
+        # Clean mode: force /compact to reset context before next iteration
+        continuation_prompt = (
+            "IMPORTANT: Run /compact FIRST to clear stale context from previous iterations.\n"
+            "After /compact completes, read these files FRESH:\n"
+            "1. .claude/harness-state.json — current step, status, iteration number\n"
+            "2. .claude/harness/mission.md — mission contract\n"
+            "3. .claude/harness/playbook.md — step definitions\n"
+            "4. .claude/harness/eval-criteria.md — validation standards\n"
+            "5. .claude/harness/logs/execution_stream.log — ONLY the last 20 lines for recent history\n\n"
+            "Execute the NEXT playbook step indicated by the state file (only ONE step). "
+            "After completing the step and running validation, end your turn — the loop will continue automatically."
+        )
+    else:
+        # In-session mode: rely on context hygiene instructions (no /compact)
+        continuation_prompt = (
+            "IMPORTANT: Ignore ALL prior conversation context — it may contain stale information from previous iterations.\n"
+            "Read these files FRESH to determine current state:\n"
+            "1. .claude/harness-state.json — current step, status, iteration number\n"
+            "2. .claude/harness/mission.md — mission contract\n"
+            "3. .claude/harness/playbook.md — step definitions\n"
+            "4. .claude/harness/eval-criteria.md — validation standards\n"
+            "5. .claude/harness/logs/execution_stream.log — ONLY the last 20 lines for recent history\n\n"
+            "Execute the NEXT playbook step indicated by the state file (only ONE step). "
+            "After completing the step and running validation, end your turn — the loop will continue automatically."
+        )
 
-    system_msg = f"[Harness iteration {next_iteration}] | mode: {execution_mode} | status: {status} | failures: {consecutive_failures} | To stop when genuinely done: output <promise>LOOP_DONE</promise>"
+    system_msg = (
+        f"[Harness iteration {next_iteration}] | mode: {execution_mode} | loop: {loop_mode} | status: {status} | "
+        f"failures: {consecutive_failures} | To stop when genuinely done: output <promise>LOOP_DONE</promise>\n"
+        f"CRITICAL RULE: State file (.claude/harness-state.json) is the ONLY source of truth. "
+        f"Prior conversation context is STALE — do NOT use it to judge whether work is already done. "
+        f"Always re-read state files at the start of every iteration."
+    )
+
+    # Context health suggestions (in-session mode only — clean mode forces /compact every iteration)
+    if loop_mode != "clean":
+        current_step = state.get("current_step", "Step 1")
+        step_match = re.search(r"Step (\d+)", current_step)
+        step_num = int(step_match.group(1)) if step_match else 1
+        if step_num > 1 and step_num % 4 == 1:
+            system_msg += (
+                f"\n\n[Context Health] You are at Step {step_num}. "
+                f"Consider running /compact to compress stale context before continuing. "
+                f"This prevents earlier iterations' completion messages from misleading you."
+            )
 
     response = {
         "decision": "block",

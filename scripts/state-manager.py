@@ -8,6 +8,7 @@ Usage:
     state-manager.py read          Print current state as JSON
     state-manager.py init [opts]   Initialize a new state file
                                       --force  Overwrite even if active workspace exists
+                                      --loop-mode in-session|clean  Context strategy per iteration
     state-manager.py update KEY VAL  Update a field
     state-manager.py log MESSAGE   Append to execution stream (L3)
     state-manager.py report SUBTASK STRATEGY VERIFICATION STATE_TARGET
@@ -89,6 +90,8 @@ def cmd_init(args):
     verify_instruction = ""
     max_iterations = 0
     skills = ""
+    loop_mode = "in-session"
+    cycle_steps = None
     force = False
 
     def _validate_value(flag, value):
@@ -118,6 +121,26 @@ def cmd_init(args):
             _validate_value("--skills", args[i + 1])
             skills = args[i + 1]
             i += 2
+        elif args[i] == "--loop-mode" and i + 1 < len(args):
+            _validate_value("--loop-mode", args[i + 1])
+            if args[i + 1] not in ("in-session", "clean"):
+                print(f"Error: --loop-mode must be 'in-session' or 'clean', got '{args[i+1]}'", file=sys.stderr)
+                sys.exit(1)
+            loop_mode = args[i + 1]
+            i += 2
+        elif args[i] == "--cycle-steps" and i + 1 < len(args):
+            _validate_value("--cycle-steps", args[i + 1])
+            try:
+                parts = args[i + 1].split(",")
+                if len(parts) != 2:
+                    raise ValueError("need exactly 2 numbers separated by comma")
+                cycle_steps = [int(parts[0]), int(parts[1])]
+                if cycle_steps[0] < 1 or cycle_steps[1] <= cycle_steps[0]:
+                    raise ValueError("cycle_end must be > cycle_start, both >= 1")
+            except ValueError as e:
+                print(f"Error: --cycle-steps requires 'start,end' (e.g., '1,3'), got '{args[i+1]}': {e}", file=sys.stderr)
+                sys.exit(1)
+            i += 2
         elif args[i] == "--force":
             force = True
             i += 1
@@ -128,13 +151,15 @@ def cmd_init(args):
     state_dir.mkdir(parents=True, exist_ok=True)
     state_path = state_dir / "harness-state.json"
 
-    # Overwrite protection: refuse to clobber an active workspace
-    if state_path.exists() and not force:
+    # Check if we are overwriting a previous mission (for log reset below)
+    is_reinit = False
+    if state_path.exists():
         try:
             existing = json.loads(state_path.read_text())
             existing_status = existing.get("status", "")
             existing_task = existing.get("task_name", "unknown")
-            if existing_status not in ("mission_complete", "failed"):
+            is_reinit = force or existing_status in ("mission_complete", "failed")
+            if not force and existing_status not in ("mission_complete", "failed"):
                 print(
                     f"ERROR: Active workspace exists (task: '{existing_task}', "
                     f"status: {existing_status}). Use --force to overwrite.",
@@ -160,6 +185,10 @@ def cmd_init(args):
         "skills": skills,
         "last_execution_time": now,
         "task_name": task_name,
+        "started_at": now,
+        "loop_mode": loop_mode,
+        "cycle_steps": cycle_steps,
+        "cycle_iteration": 0,
         "knowledge_index": [],
     }
 
@@ -169,7 +198,19 @@ def cmd_init(args):
     log_dir = Path.cwd() / ".claude/harness" / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / "execution_stream.log"
-    if not log_path.exists():
+
+    # When overwriting a previous mission, reset the execution_stream.log
+    # and clean ALL stale deliverable files from logs/ to prevent old reports
+    # from confusing the agent into thinking work is done.
+    # This is the authoritative cleanup point — runs AFTER state file is written,
+    # so there's no risk of mid-process data loss.
+    if is_reinit:
+        # Clean all files in logs/ directory (archive already copied them for safekeeping)
+        for stale_file in log_dir.iterdir():
+            if stale_file.is_file():
+                stale_file.unlink()
+        log_path.write_text(f"# Execution Stream Log\n# Initialized {now}\n\n")
+    elif not log_path.exists():
         log_path.write_text(f"# Execution Stream Log\n# Initialized {now}\n\n")
 
     print(json.dumps({
@@ -216,7 +257,7 @@ def cmd_log(args):
 
 
 def cmd_step_advance(args):
-    """Advance current_step to next step number."""
+    """Advance current_step to next step number, cycling if cycle_steps is set."""
     path = find_state_file()
     if not path:
         sys.exit(1)
@@ -224,7 +265,20 @@ def cmd_step_advance(args):
     current = state.get("current_step", "Step 1")
     match = re.search(r"Step (\d+)", current)
     if match:
-        next_num = int(match.group(1)) + 1
+        current_num = int(match.group(1))
+        next_num = current_num + 1
+
+        # Cycle logic: if cycle_steps is set (e.g., [1, 3]) and we've passed
+        # the cycle end, wrap back to cycle start instead of advancing past it
+        cycle_steps = state.get("cycle_steps", None)
+        if cycle_steps and isinstance(cycle_steps, list) and len(cycle_steps) == 2:
+            cycle_start, cycle_end = int(cycle_steps[0]), int(cycle_steps[1])
+            if current_num == cycle_end:
+                next_num = cycle_start
+                # Track cycle iterations
+                cycle_iter = state.get("cycle_iteration", 0) + 1
+                state["cycle_iteration"] = cycle_iter
+
         state["current_step"] = f"Step {next_num}"
         write_state(state, path)
         print(f"Advanced to Step {next_num}")
@@ -315,11 +369,13 @@ def cmd_archive(args):
             shutil.move(str(src), str(archive_dir / f))
             archived.append(f)
 
-    # Archive logs directory
+    # Archive logs directory — COPY (not move) for safety.
+    # The authoritative cleanup happens in cmd_init (is_reinit block).
+    # We use copy here so that if init fails after archive, the original
+    # workspace is still intact and recoverable.
     logs_src = harness_dir / "logs"
     if logs_src.exists() and any(logs_src.iterdir()):
         shutil.copytree(str(logs_src), str(archive_dir / "logs"))
-        # Don't remove original logs - they may be needed
         archived.append("logs/")
 
     if archived:

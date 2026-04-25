@@ -46,17 +46,49 @@ What task would you like the harness to execute? Describe it in one sentence.
 
 Skip this entire step in Quick mode — go directly to Step 2.
 
-### Step 1A: Analyze Codebase & Expand Task Description
+### Step 1A: Task Analysis & Conditional Codebase Scan
 
-Before refining the task, briefly analyze the current project:
+Before touching any files, **classify the task** to determine how much codebase context is needed.
 
-1. **Detect tech stack**: Use Glob to find key config files (`package.json`, `Cargo.toml`, `pyproject.toml`, `go.mod`, etc.) and determine language/framework
+**Task classification** — analyze the user's description and pick one:
+
+| Category | Signals | Codebase read needed? |
+|---|---|---|
+| **Targeted change** | User names specific files, functions, or modules (e.g., "fix auth.ts login bug") | **Light**: Read only the named files/modules |
+| **Feature/addition** | User describes new functionality without naming files (e.g., "add JWT auth middleware") | **Medium**: Detect tech stack + scan relevant module structure |
+| **Cross-cutting refactor** | User describes system-wide change (e.g., "migrate Python to Rust", "improve error handling across all crates") | **Full**: Full tech stack + project structure + test patterns |
+| **Non-code task** | Documentation, config, planning (e.g., "write API docs", "update CI config") | **None**: Skip codebase read entirely |
+| **Ambiguous** | Can't tell from description alone | **Ask the user** (see below) |
+
+**If classification is ambiguous**, ask the user a single clarifying question:
+
+```
+To scope this task correctly, do I need to read the codebase first?
+- "Yes, full scan" — I'll analyze the project structure before planning
+- "Yes, but only [module/directory]" — I'll read only the specified area
+- "No, just plan from my description" — I'll work from your description alone
+```
+
+Then, based on the classification, perform the appropriate level of analysis:
+
+**Full scan** (cross-cutting refactor):
+1. **Detect tech stack**: Use Glob to find key config files (`package.json`, `Cargo.toml`, `pyproject.toml`, `go.mod`, etc.)
 2. **Scan project structure**: List top-level directories and key entry points
 3. **Check existing tests**: Find test directories/files to understand test patterns
 
-Then, expand the user's task description:
+**Medium scan** (feature/addition):
+1. **Detect tech stack** (same as above)
+2. **Scan only the relevant module/directory** that the feature likely touches
 
-- Add concrete scope boundaries based on the codebase structure
+**Light scan** (targeted change):
+1. **Read only the specific files** the user named — no project-wide scanning
+
+**None** (non-code task):
+- Skip all codebase reading. Proceed directly with the task description.
+
+After any level of scan, expand the user's task description with the gathered context:
+
+- Add concrete scope boundaries based on the codebase structure (if scanned)
 - Identify which files/modules are likely involved
 - Clarify ambiguous terms using project context
 - Add implementation constraints (follow existing patterns, match conventions)
@@ -64,7 +96,7 @@ Then, expand the user's task description:
 Present the expanded task description to the user:
 
 ```
-Based on the project analysis, here's the expanded task:
+Based on [project analysis / file review / your description], here's the expanded task:
 
 [Expanded description with concrete scope, affected modules, and constraints]
 
@@ -143,6 +175,26 @@ Use recommended skills? Or adjust the list?
 If the user already specified `--skills`, validate them against the tech stack and note any gaps.
 
 Wait for user confirmation. Use the final confirmed skill list.
+
+### Step 1E: Loop Mode Selection
+
+Ask the user how each iteration should handle context:
+
+```
+How should each loop iteration handle conversation context?
+
+- "continuous" (default) — Same session throughout. Faster iteration, context accumulates. Agent is instructed to ignore stale context. Good for short missions or tasks where context carry-over is helpful.
+- "clean" — Same session, but auto-compress context between iterations (via /compact). Prevents stale context from misleading the agent at the cost of one extra step per iteration. Good for long missions with many steps.
+
+Which mode?
+```
+
+**Guidelines:**
+- If the task has <= 3 steps, default to "continuous" and skip this question — inform the user.
+- If the task has 4+ steps OR involves review/audit cycles, ask this question explicitly.
+- Store the answer as `loop_mode`: "in-session" for continuous, "clean" for auto-compressed.
+
+Wait for user confirmation.
 
 ## Step 1.5: Workspace Overwrite Check
 
@@ -252,6 +304,16 @@ Create a concrete step-by-step plan using the quality profile from Step 2.
 - The final step should always be a `verify` step
 - When wizard was used, align steps with the deliverables from Step 1B
 
+**Cycle playbook** (for iterative review-fix-verify tasks):
+- If the task type is "review" or "iterative improvement" (e.g., "review codebase and fix all issues"), use a cycle playbook:
+  ```
+  Step 1: review (cumulative scope)
+  Step 2: fix (apply findings)
+  Step 3: verify (eval-agent validation)
+  ```
+  Set `--cycle-steps 1,3` in the init command so the loop cycles: review → fix → verify → review → ... until all criteria pass.
+- The done condition should be: "All review findings resolved, all tests pass, no new issues found in re-review"
+
 ### .claude/harness/eval-criteria.md
 
 Create validation standards based on the verify instruction:
@@ -277,13 +339,31 @@ Initialize with:
 
 ## Step 6: Initialize State File
 
+**Derive cycle_steps** from the playbook structure (no separate user question needed):
+
+| Condition | cycle_steps value | Reasoning |
+|---|---|---|
+| Task type is review/audit (from Step 1A) | `[1, N]` where N is the verify step number | Full cycle: review → fix → verify → re-review until clean |
+| Task type is implementation AND `review_rounds >= 1` | `[first_review_step, last_verify_step]` | Implement linearly first, then cycle the review-fix-verify tail. Cumulative review scope ensures all implementations are re-checked each cycle. |
+| Task type is implementation AND `review_rounds = 0` | omit (linear) | No review needed, standard linear execution |
+| Task has 5+ implement steps | `[first_review_step, last_verify_step]` | Long implementation chains accumulate integration drift — a final review cycle catches cross-step regressions even if user didn't explicitly request review |
+
+**Example for a 10-step implementation task with review:**
+```
+Step 1-8: implement (linear — each step runs once)
+Step 9:   review (cumulative scope — reviews ALL code from steps 1-8)
+Step 10:  fix
+Step 11:  verify
+cycle_steps: [9, 11]  ← only the review tail cycles
+```
+
 Run the state manager to create the JSON state file:
 
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py init <task-name> --mode <mode> --verify "<verify-instruction>" --skills "<skills>" [--force]
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py init <task-name> --mode <mode> --verify "<verify-instruction>" --skills "<skills>" --loop-mode <in-session|clean> [--cycle-steps <start,end>] [--force]
 ```
 
-Use `--force` only if the user confirmed overwrite in Step 1.5. This creates `.claude/harness-state.json` and `.claude/harness/logs/execution_stream.log`.
+Use `--force` only if the user confirmed overwrite in Step 1.5. Use `--loop-mode` from Step 1E. Use `--cycle-steps` as derived above. This creates `.claude/harness-state.json` and `.claude/harness/logs/execution_stream.log`.
 
 ## Step 7: Verify Initialization
 
@@ -306,6 +386,8 @@ Harness workspace initialized.
 
 Task: <task-name>
 Mode: <single|dual>
+Loop mode: <in-session|clean>
+Cycle: <yes: steps X-Y | no: linear>
 Verify: <instruction or "none">
 Skills: <skills or "none">
 
@@ -327,4 +409,4 @@ Ready to start execution. Run /harness-dev to begin.
 - Always run state-manager.py as the last step -- it creates the `.claude/` directory and state file.
 - When using `--from-plan`, faithfully reflect the plan's structure.
 - In wizard mode, each confirmation step must complete before moving to the next.
-- In quick mode, skip Steps 1A-1D entirely and use the provided arguments as-is.
+- In quick mode, skip Steps 1A-1E entirely and use the provided arguments as-is.

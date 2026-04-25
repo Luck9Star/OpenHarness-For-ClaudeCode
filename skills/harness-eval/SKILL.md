@@ -73,22 +73,55 @@ When validation fails:
 
 ## Quality Enforcement (Goodhart's Law Defense)
 
-When evaluating, apply these checks in addition to the explicit standards:
+These checks are MANDATORY — not advisory. The eval-agent MUST enforce every one of them. Apply these in addition to the explicit standards.
 
-### Density Verification
+### Density Verification (MANDATORY)
 For review/audit tasks: verify that findings have adequate density. If a review report shows very few findings relative to the codebase size (e.g., < 1 finding per 500 LOC for code review), flag this as a potential shallow review — even if all explicit checks PASS. Report as:
 ```json
 {"check": "finding_density", "passed": false, "evidence": "Only 2 findings for 10K LOC codebase (5000 LOC/finding). Threshold is 500 LOC/finding."}
 ```
 
-### Exhaustion Evidence
-For every dimension/module where the executor claims "no issues found" or "looks clean", verify that supporting evidence is provided. A bare "no issues" without explanation of what was checked is NOT acceptable.
+**Density floors** (per report type):
+| Report type | Minimum density |
+|---|---|
+| Full codebase review | <= 1500 LOC/finding |
+| Iteration diff review | <= 800 LOC/finding |
+| Security-focused review | <= 500 LOC/finding |
 
-### Shallow Pass Detection
+If a report's density exceeds the threshold, FAIL the check. The only exception is if the `blind_spots` field contains exhaustive evidence of what was checked.
+
+### Exhaustion Evidence (MANDATORY)
+For every dimension/module where the executor claims "no issues found" or "looks clean", verify that supporting evidence is provided. A bare "no issues" without explanation of what was checked is NOT acceptable. Each "clean" claim MUST include:
+- What functions/paths were examined
+- What specific checks were performed
+- What edge cases were considered
+
+### Shallow Pass Detection (MANDATORY)
 If ALL checks pass but the evidence for each check is suspiciously thin (e.g., each check's evidence is under 20 words, no file:line references, no command output), flag the overall evaluation as `PASS_WITH_CONCERN` and include a note:
 ```json
 {"overall": true, "confidence": "low", "concern": "All checks passed but evidence is thin. Recommend re-dispatching with deeper scope."}
 ```
 
-### Convergence Proof
-When comparing results across iterations (if historical data is available): if the number of findings dropped significantly (> 50%), verify that the executor provided an explanation for WHY — not just that it dropped. Absent an explanation, flag it.
+### Convergence Proof (MANDATORY for multi-iteration missions)
+When comparing results across iterations (if historical data is available):
+
+1. **>50% drop requires explanation**: If findings dropped > 50% between adjacent iterations, the review MUST explain WHY (e.g., "5 bugs fixed, 3 new test patterns prevent regressions"). A bare "fewer findings" is NOT sufficient.
+
+2. **New-code coverage check**: Each iteration's review MUST cover ALL new code written in previous iterations. If iteration 2's review scope excludes code written in iteration 1, FAIL the convergence check — the review is incomplete, not the code better.
+
+3. **Convergence directionality**: Convergence is only valid when:
+   - The REVIEW SCOPE stays the same or grows (reviewing MORE code, not less)
+   - The REVIEW DENSITY stays above floor (findings per LOC reviewed stays above minimum)
+   - NEW issues found are <= previous iteration's severity (no new criticals in later iterations)
+   A "convergence" achieved by narrowing scope or reducing review depth is FALSE convergence.
+
+### False Convergence Detection (MANDATORY)
+If the eval-agent observes ANY of these patterns, it MUST flag the convergence claim as FALSE:
+
+| Pattern | Detection | Verdict |
+|---|---|---|
+| Scope narrowing | iter1 reviewed 50 files, iter2 reviewed 10 files | FAIL convergence |
+| Density collapse | iter1: 500 LOC/finding, iter2: 5000 LOC/finding | FAIL convergence |
+| Fix-code skip | iter2 report has no re-audit of iter1 fixes | FAIL convergence |
+| Test-only "convergence" | convergence claimed via test pass rate, no review evidence | FAIL convergence |
+| Metric gaming | findings decrease but LOC reviewed also decreased proportionally | FAIL convergence |

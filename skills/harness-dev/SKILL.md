@@ -45,14 +45,14 @@ Note: The `--verify` instruction and `--skills` are preserved from the existing 
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" read
 ```
 
-Extract the `verify_instruction` and `skills` values from the JSON output, then forward them:
+Extract the `verify_instruction`, `skills`, `loop_mode`, and `cycle_steps` values from the JSON output, then forward them:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup-harness-loop.sh" <task-name> --mode <mode> --max-iterations <N> --verify "<verify_instruction>" --skills "<skills>"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup-harness-loop.sh" <task-name> --mode <mode> --max-iterations <N> --verify "<verify_instruction>" --skills "<skills>" --loop-mode <in-session|clean> --cycle-steps <start,end>
 ```
 
 Use the task name from `.claude/harness/mission.md` (Section 1: Mission Name).
-If verify_instruction or skills are empty/absent in the existing state, omit the corresponding flag.
+If verify_instruction, skills, loop_mode, or cycle_steps are empty/absent in the existing state, omit the corresponding flag.
 
 Verify the output confirms successful initialization.
 
@@ -86,14 +86,34 @@ Then begin executing the playbook from the current step.
 
 **CRITICAL CONSTRAINT: Execute exactly ONE playbook step per iteration.** After completing one step (including validation), your turn ends. The stop-hook will automatically drive the next iteration by blocking session exit and sending a continuation prompt. Do NOT execute multiple steps in one turn — this defeats the stop-hook loop mechanism.
 
+**CONTEXT HYGIENE RULE**: At the start of EVERY iteration, you MUST ignore all prior conversation context. Prior iterations may contain "PASS", "complete", or "done" messages that are STALE — they describe work done in previous iterations, not the current state. The ONLY source of truth is:
+1. `.claude/harness-state.json` — tells you which step to execute NOW
+2. `.claude/harness/` files — mission, playbook, eval criteria
+3. `.claude/harness/logs/execution_stream.log` — ONLY the last 20 lines for recent history
+
+Do NOT assume a step is done because earlier context says so. Re-read the state file and verify.
+
 Each iteration follows this exact workflow. Do not improvise -- follow it precisely.
 
 ### 5.1. Read State File
 
-Read `.claude/harness-state.json` first. Check:
+Read `.claude/harness-state.json` first. Check in this exact order:
 
-- **Circuit breaker**: If `circuit_breaker: tripped`, stop immediately. Output a message explaining that manual intervention is required and output `<promise>LOOP_DONE</promise>` so the loop can exit safely.
-- **Mission complete**: If `status: mission_complete`, output `<promise>LOOP_DONE</promise>` and stop.
+1. **Circuit breaker**: If `circuit_breaker: tripped`, stop immediately. Output a message explaining that manual intervention is required and output `<promise>LOOP_DONE</promise>` so the loop can exit safely.
+
+2. **Mission identity gate** (CRITICAL — prevents stale-state early exit):
+   Read the `task_name` field from the state file. Then read `.claude/harness/mission.md` Section 1 (Mission Name). **If they differ**, the state file is STALE from a previous mission — you MUST reinitialize before doing anything else:
+   ```
+   # Preserve verify_instruction and skills from the stale state, then reinitialize
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" init <mission-name-from-mission-md> --mode <execution_mode-from-state> --max-iterations <from-state> --verify "<verify_instruction-from-state>" --skills "<skills-from-state>" --force
+   ```
+   After reinitializing, re-read the state file to get fresh state. Log the identity mismatch:
+   ```
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Mission identity mismatch: state had '<old-task-name>', mission.md has '<new-task-name>'. Reinitialized."
+   ```
+   Then continue with the fresh state. Do NOT skip this step under any circumstance — a stale state with `mission_complete` from a DIFFERENT mission must NEVER cause early exit.
+
+3. **Mission complete**: If `status: mission_complete` AND the task name matches (gate #2 passed), output `<promise>LOOP_DONE</promise>` and stop.
 
 ### 5.2. Recover from Stuck State
 
@@ -164,29 +184,44 @@ You plan only. Delegate coding to a sub-agent.
 ALWAYS spawn `harness-review-agent` -- read-only code review.
 
 1. Read the current step description from the playbook
-2. Spawn `harness-review-agent` with the step description and scope
-3. The review agent writes findings to `.claude/harness/logs/review_report.json`
-4. Read `.claude/harness/logs/review_report.json` to check the verdict:
-   - `pass` -- log and proceed
-   - `conditional-pass` -- log warnings, proceed but note issues
-   - `fail` -- log critical issues, next fix step will address them
-5. Log: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Review completed: <overall verdict>"`
-6. Skip validation (step 5.6) for review steps -- proceed directly to step 5.7/5.8
+2. **Determine cumulative scope**: Before spawning the review agent, compute the full review scope:
+   - Run `git diff --name-only <branch-point>..HEAD` to list ALL files modified since mission start
+   - If git is unavailable, read the execution stream log to identify all files modified across iterations
+   - Pass this full file list to the review agent as its scope
+3. Spawn `harness-review-agent` with:
+   - The current step description
+   - **Cumulative scope**: ALL modified files since mission start (not just current step's diff)
+   - **Previous fix re-audit**: Explicitly instruct the agent to re-examine fix code from ALL previous iterations, not just current changes
+   - **Density floor**: Instruct the agent that the review must have >= 1 finding per 1500 LOC, with exhaustion evidence for clean areas
+4. The review agent writes findings to `.claude/harness/logs/review_report.json`
+5. Read `.claude/harness/logs/review_report.json` to check the verdict:
+   - `pass` -- verify the `scope.cumulative` field is `true` and `scope.files_reviewed` covers all modified files. Also verify `compliance.requirements_met == compliance.requirements_total` (no spec gaps). If either is incomplete, re-dispatch with expanded scope.
+   - `conditional-pass` -- log warnings, check `compliance.gaps` for missing requirements. Proceed but note issues.
+   - `fail` -- log critical issues and compliance gaps, next fix step will address them
+6. **Verify review quality** (anti-shallow-pass defense):
+   - Check the `density` field in the report: `loc_per_finding` should be <= 1500
+   - Check `blind_spots` field exists and is non-empty for large codebases
+   - Check `compliance.gaps` — if any gap has status `missing`, it's a requirement with zero implementation
+   - If density is suspiciously low (e.g., > 2000 LOC per finding), re-dispatch with stricter instructions
+7. Log: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Review completed: <overall verdict>, compliance <met>/<total>, density <loc_per_finding> LOC/finding, <N> files reviewed (cumulative)"`
+8. Skip validation (step 5.6) for review steps -- proceed directly to step 5.7/5.8
 
 #### type: fix
 
 Read the review report, then apply fixes.
 
 1. Read `.claude/harness/logs/review_report.json`
-2. If report is missing or overall verdict was `pass`, skip -- log and advance
-3. Extract issue list
+2. If report is missing or overall verdict was `pass` with no compliance gaps, skip -- log and advance
+3. Extract issue list AND compliance gaps:
+   - Issues from `issues` array → fix code quality bugs
+   - Gaps from `compliance.gaps` array → implement missing requirements or complete partial implementations
 
 Then dispatch based on execution mode:
 - **Single mode**: Fix yourself using Read, Edit, Write, Bash
-- **Dual mode**: Spawn `harness-dev-agent` with the issue list
+- **Dual mode**: Spawn `harness-dev-agent` with the issue list and compliance gaps
 
 After fixes:
-- Log: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Applied fixes for <N> issues from review"`
+- Log: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Applied fixes for <N> issues + <M> compliance gaps from review"`
 - Run validation (step 5.6) if step has completion criteria
 
 #### type: human-review
@@ -233,7 +268,12 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "PASS: <step> verif
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" update status idle
 ```
 
-Check if this was the last step and all eval criteria are satisfied. If so:
+**Cycle behavior**: If `cycle_steps` is set in the state file (e.g., `[1, 3]`), `step-advance` will wrap back to the cycle start when reaching the cycle end. The cycle continues until **all** eval criteria pass in a single iteration. This is the standard pattern for iterative review-fix-verify workflows:
+```
+Step 1 (review) → Step 2 (fix) → Step 3 (verify) → back to Step 1 (review) → ... → mission_complete
+```
+
+Check if all eval criteria are satisfied. For cycle missions, ALL criteria must pass in the same cycle iteration — not accumulated across iterations. If so:
 
 ```
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" update status mission_complete

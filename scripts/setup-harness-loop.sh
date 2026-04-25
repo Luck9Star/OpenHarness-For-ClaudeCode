@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Initialize OpenHarness loop state file
-# Usage: setup-harness-loop.sh <task-name> [--mode single|dual] [--verify INSTRUCTION] [--max-iterations N] [--skills SKILL1,SKILL2]
+# Usage: setup-harness-loop.sh <task-name> [--mode single|dual] [--verify INSTRUCTION] [--max-iterations N] [--skills SKILL1,SKILL2] [--loop-mode in-session|clean]
 
 set -euo pipefail
 
@@ -15,9 +15,11 @@ EXECUTION_MODE="single"
 VERIFY_INSTRUCTION=""
 MAX_ITERATIONS=0
 SKILLS=""
+LOOP_MODE="in-session"
+CYCLE_STEPS=""
 
 if [[ $# -lt 1 ]]; then
-  echo "Usage: setup-harness-loop.sh <task-name> [--mode single|dual] [--verify INSTRUCTION] [--max-iterations N] [--skills SKILL1,SKILL2]" >&2
+  echo "Usage: setup-harness-loop.sh <task-name> [--mode single|dual] [--verify INSTRUCTION] [--max-iterations N] [--skills SKILL1,SKILL2] [--loop-mode in-session|clean]" >&2
   exit 1
 fi
 
@@ -62,6 +64,26 @@ while [[ $# -gt 0 ]]; do
       SKILLS="$2"
       shift 2
       ;;
+    --loop-mode)
+      if [[ $# -lt 2 ]]; then
+        echo "Error: --loop-mode requires an argument (in-session|clean)" >&2
+        exit 1
+      fi
+      LOOP_MODE="$2"
+      if [[ "$LOOP_MODE" != "in-session" && "$LOOP_MODE" != "clean" ]]; then
+        echo "Error: --loop-mode must be 'in-session' or 'clean', got: $LOOP_MODE" >&2
+        exit 1
+      fi
+      shift 2
+      ;;
+    --cycle-steps)
+      if [[ $# -lt 2 ]]; then
+        echo "Error: --cycle-steps requires an argument (e.g., 1,3)" >&2
+        exit 1
+      fi
+      CYCLE_STEPS="$2"
+      shift 2
+      ;;
     *)
       echo "Warning: Unknown argument: $1" >&2
       shift
@@ -80,6 +102,12 @@ if [[ -n "$SKILLS" ]]; then
   INIT_ARGS+=(--skills "$SKILLS")
 fi
 INIT_ARGS+=(--max-iterations "$MAX_ITERATIONS")
+if [[ -n "$LOOP_MODE" ]]; then
+  INIT_ARGS+=(--loop-mode "$LOOP_MODE")
+fi
+if [[ -n "$CYCLE_STEPS" ]]; then
+  INIT_ARGS+=(--cycle-steps "$CYCLE_STEPS")
+fi
 
 python3 "$STATE_MANAGER" init "${INIT_ARGS[@]}"
 
@@ -99,6 +127,7 @@ echo ""
 echo "=== OpenHarness Loop Initialized ==="
 echo "  Task Name:         $TASK_NAME"
 echo "  Execution Mode:    $EXECUTION_MODE"
+echo "  Loop Mode:         $LOOP_MODE"
 echo "  Verify Instruction: ${VERIFY_INSTRUCTION:-(none)}"
 echo "  Skills:            ${SKILLS:-(none)}"
 echo "  Max Iterations:     ${MAX_ITERATIONS:-0 (infinite)}"

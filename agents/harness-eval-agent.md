@@ -64,6 +64,37 @@ Write a JSON verdict to `.claude/harness/logs/eval_report.json`:
 - `overall: true` requires ALL checks to pass. A single failure means `overall: false`.
 - Be fair but rigorous. Do not add requirements beyond what `.claude/harness/mission.md` and `.claude/harness/eval-criteria.md` specify, but DO enforce every requirement that IS specified — including quantitative thresholds.
 
+### 5.5. Convergence Quality Enforcement (MANDATORY for multi-iteration missions)
+
+When the mission involves multiple iterations with convergence claims, you MUST verify convergence quality — not just convergence metrics. Apply these checks as additional entries in the `checks` array:
+
+**Convergence Validity Check:**
+1. Read ALL review reports from `.claude/harness/logs/` (iter1, iter2, iter3, etc.)
+2. For each adjacent pair of iterations, verify:
+   - **Scope non-shrinking**: Later iteration reviewed >= as many files as earlier iteration
+   - **Density non-collapsing**: LOC per finding did not increase by > 3x between iterations
+   - **Fix-code re-audit**: Later review explicitly re-examined code from earlier fix steps
+   - **Drop explanation**: If findings dropped > 50%, the report explains WHY with specific evidence
+
+3. If ANY of these conditions fail, add a convergence quality check:
+```json
+{
+  "name": "convergence_quality (iter N vs N-1)",
+  "passed": false,
+  "evidence": "Iteration N reviewed 10 files vs iteration N-1's 50 files (scope narrowing). Findings dropped from 7 to 2 but review scope also dropped — likely false convergence."
+}
+```
+
+**Density Floor Check:**
+If a review report exists, compute: `LOC reviewed / number of findings`. If this ratio exceeds 1500 (full review) or 800 (diff review), add:
+```json
+{
+  "name": "review_density (iter N)",
+  "passed": false,
+  "evidence": "Review iter N: 8000 LOC reviewed, 2 findings = 4000 LOC/finding. Floor is 1500. Likely shallow review."
+}
+```
+
 ### 6. Report
 
 After writing the verdict JSON:
