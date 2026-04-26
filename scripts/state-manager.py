@@ -379,6 +379,12 @@ def cmd_archive(args):
         archived.append("logs/")
 
     if archived:
+        # Archive the state file itself — prevents zombie state where
+        # archive removed workspace files but state file still claims active task
+        if state_path.exists():
+            shutil.move(str(state_path), str(archive_dir / "harness-state.json"))
+            archived.append("harness-state.json")
+
         print(json.dumps({
             "status": "archived",
             "path": str(archive_dir),
@@ -388,6 +394,9 @@ def cmd_archive(args):
     else:
         # Nothing to archive, remove empty dir
         archive_dir.rmdir()
+        # Still remove state file if it exists with no workspace files
+        if state_path.exists():
+            state_path.unlink()
         print(json.dumps({"status": "nothing_to_archive"}))
 
 

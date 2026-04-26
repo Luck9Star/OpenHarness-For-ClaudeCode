@@ -73,6 +73,8 @@
 | Pass Condition | `(a) No new P0 findings introduced. (b) New P1 findings <= P1 findings resolved. (c) If findings decreased > 50%, review includes an explicit section explaining: which areas were genuinely clean (with evidence), what was checked that found nothing (exhaustion log), acknowledgment of potential blind spots.` |
 | On Fail | `Re-dispatch with instruction to verify whether reduction is genuine or due to insufficient depth` |
 
+> **IMPORTANT: For review-cycle tasks (playbook has `cycle_steps`), convergence MUST be included as a numbered Standard (e.g., Standard N+1), NOT just as this guideline section.** The eval-agent only checks numbered standards for PASS/FAIL. Without a numbered convergence check, the loop will exit after the first cycle where all other criteria pass — regardless of whether review depth was maintained. |
+
 ### Blind Spot Acknowledgment
 
 | Field | Value |

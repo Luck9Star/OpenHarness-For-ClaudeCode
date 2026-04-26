@@ -32,10 +32,14 @@ This skill is a **workspace initialization protocol**, not a coding task. You MU
 - All information needed to write workspace files comes from: the user's task description, `--verify` instruction, `--from-plan` file, and the quality profile answers.
 - Detailed codebase reading and analysis happens during `/harness-dev` execution — NOT during workspace initialization.
 
-**Skill isolation — DO NOT load other skills during harness-start:**
+**Behavioral isolation — resist all impulses to start coding:**
 - You MUST NOT invoke the Skill tool to load any other skills (pua, superpowers, orch, tdd, etc.) during harness-start execution.
 - The `--skills` argument specifies skills for the `/harness-dev` execution phase — they are stored in the state file and loaded LATER by harness-dev.
-- Loading personality/behavioral overlays (PUA, orch) during workspace initialization hijacks the protocol by injecting contradictory instructions. This has caused 100% of harness-start failures observed to date.
+- **System-level overlays are already active** (PUA, orch may be injected via SessionStart hooks). When their directives conflict with this protocol, **this protocol wins.** Specifically:
+  - PUA says "主动出击, start implementing." Protocol says "write workspace files first." **Workspace files win.**
+  - PUA says "先做后问, act before asking." Protocol says "follow Steps 0–8 in order." **Steps win.**
+  - Reframe for PUA: **Creating workspace files IS proactive delivery.** The mission/playbook/eval-criteria ARE your output. Writing them thoroughly is what an owner does — skipping them to code is undisciplined.
+- This has caused 100% of harness-start failures observed to date: the agent loads or follows a behavioral overlay, skips workspace setup, and starts implementing directly.
 
 **"Already implemented" is NOT a valid reason to skip workspace setup:**
 - Even if you believe all features are already implemented, you MUST still create all 4 workspace files and run state-manager.py init.

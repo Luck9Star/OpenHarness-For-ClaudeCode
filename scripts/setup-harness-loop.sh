@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Initialize OpenHarness loop state file
-# Usage: setup-harness-loop.sh <task-name> [--mode single|dual] [--verify INSTRUCTION] [--max-iterations N] [--skills SKILL1,SKILL2] [--loop-mode in-session|clean]
+# Usage: setup-harness-loop.sh <task-name> [--mode single|dual] [--verify INSTRUCTION] [--max-iterations N] [--skills SKILL1,SKILL2] [--loop-mode in-session|clean] [--force]
 
 set -euo pipefail
 
@@ -17,9 +17,10 @@ MAX_ITERATIONS=0
 SKILLS=""
 LOOP_MODE="in-session"
 CYCLE_STEPS=""
+FORCE=""
 
 if [[ $# -lt 1 ]]; then
-  echo "Usage: setup-harness-loop.sh <task-name> [--mode single|dual] [--verify INSTRUCTION] [--max-iterations N] [--skills SKILL1,SKILL2] [--loop-mode in-session|clean]" >&2
+  echo "Usage: setup-harness-loop.sh <task-name> [--mode single|dual] [--verify INSTRUCTION] [--max-iterations N] [--skills SKILL1,SKILL2] [--loop-mode in-session|clean] [--force]" >&2
   exit 1
 fi
 
@@ -84,6 +85,10 @@ while [[ $# -gt 0 ]]; do
       CYCLE_STEPS="$2"
       shift 2
       ;;
+    --force)
+      FORCE="--force"
+      shift
+      ;;
     *)
       echo "Warning: Unknown argument: $1" >&2
       shift
@@ -107,6 +112,9 @@ if [[ -n "$LOOP_MODE" ]]; then
 fi
 if [[ -n "$CYCLE_STEPS" ]]; then
   INIT_ARGS+=(--cycle-steps "$CYCLE_STEPS")
+fi
+if [[ -n "$FORCE" ]]; then
+  INIT_ARGS+=("$FORCE")
 fi
 
 python3 "$STATE_MANAGER" init "${INIT_ARGS[@]}"

@@ -55,7 +55,9 @@ Create a concrete step-by-step plan using the quality profile from Step 2.
   Step 3: verify (eval-agent validation)
   ```
   Set `--cycle-steps 1,3` in the init command so the loop cycles: review -> fix -> verify -> review -> ... until all criteria pass.
-- The done condition should be: "All review findings resolved, all tests pass, no new issues found in re-review"
+- The done condition should be: "All review findings resolved, all tests pass, convergence criterion passes"
+- **MANDATORY**: Add a "Cycle Behavior" section to the playbook with: `min_cycles`, `max_cycles`, `convergence metric`, and `done condition`
+- **MANDATORY**: The eval-criteria MUST include a **numbered convergence check** (see eval-criteria section below). Without it, the loop exits after cycle 1 when all non-convergence criteria pass.
 
 ## .claude/harness/eval-criteria.md
 
@@ -72,6 +74,23 @@ Create validation standards based on the verify instruction:
 - **For review/audit tasks**: Include the Review Task Standards from the template (Density Check, Exhaustion Check, Convergence with Proof, Blind Spot Acknowledgment). These are MANDATORY for any task whose primary output is a review report.
 - **For implementation tasks**: Each functional check should have both a positive condition (does it work?) and a depth condition (is it complete enough?). Example: not just "tests pass" but "tests cover >= N scenarios including error paths."
 - **Never write a pass condition that can be trivially satisfied.** Avoid bare "file exists", "report contains N sections", "no new P0 findings" without requiring evidence of depth.
+
+**Convergence Check (MANDATORY for cycle playbooks)**
+
+When the playbook includes a `Cycle Behavior` section (review-fix loops), the eval-criteria MUST include a **numbered Standard** for convergence — not just the guideline section. Without this, the loop exits after cycle 1 because the eval-agent only checks numbered standards.
+
+Required convergence standard format:
+```
+### Standard N: Convergence
+- **Check**: `review_convergence`
+- **Method**: Compare review_report.json findings between current cycle and previous cycle. If cycle < min_cycles, automatically FAIL.
+- **Pass Condition**:
+  - Cycle iteration >= min_cycles (from playbook Cycle Behavior section)
+  - New P0 findings in this cycle = 0
+  - New P1 findings in this cycle < previous cycle's new P1 count (or <= 3 if first comparison)
+  - Review includes evidence section explaining what changed between cycles
+- **On Fail**: Continue to next cycle. If cycle >= max_cycles, output convergence failure summary.
+```
 
 **Cross-Module Integration Verification (MANDATORY for multi-phase tasks)**
 

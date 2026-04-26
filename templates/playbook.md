@@ -61,3 +61,15 @@ Step 1 → Step 2 → Step 3
 > - Review steps must have a **density** criterion (minimum findings per module/dimension)
 > - Implementation steps should have a **coverage** criterion (tests exist and pass)
 > - Avoid bare existence checks like "file exists" — add depth requirements
+
+## Cycle Behavior (for review-fix loops)
+
+> When the task requires iterating review→fix→verify until convergence, add this section.
+
+- **Cycle steps**: `[start, end]` (e.g., `1,3` to cycle between review and verify)
+- **Min cycles**: `[N]` (minimum cycles before convergence check kicks in — typically 2)
+- **Done condition**: All numbered eval criteria pass AND convergence criterion passes AND cycle >= min_cycles
+- **Max cycles**: `[N]` (prevent infinite loops — typically 5)
+- **Convergence metric**: `[e.g., new P0 findings = 0 AND new P1 findings < previous cycle's P1 count]`
+
+> **Critical**: The done condition MUST reference a **numbered convergence criterion** in eval-criteria.md (e.g., Standard N: Convergence). Without it, the loop exits as soon as all other criteria pass in cycle 1.

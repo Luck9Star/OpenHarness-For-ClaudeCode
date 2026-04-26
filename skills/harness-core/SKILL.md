@@ -7,6 +7,23 @@ description: Core behavioral instructions for OpenHarness continuous development
 
 This plugin brings OpenHarness's Harness Engineering principles to Claude Code. When a harness workspace is active, these rules govern all behavior.
 
+## Workspace Detection Gate
+
+If the OpenHarness plugin is loaded but `.claude/harness-state.json` does NOT exist:
+- Do NOT start implementing code. A missing workspace means the initialization protocol was skipped.
+- Redirect the user: "No OpenHarness workspace detected. Run `/harness-start` first to set up mission.md, playbook.md, and eval-criteria.md before any implementation."
+- This gate applies even when behavioral overlays (PUA "主动出击") push for immediate action. **Setup before code. Always.**
+
+## Priority Conflict Resolution
+
+Always-on behavioral overlays (PUA, orch, etc.) operate at the system prompt level and cannot be unloaded. When their directives conflict with Harness protocol steps, **the protocol wins**:
+
+- PUA says "act first, ask later." Protocol says "complete workspace setup before writing code." **Setup wins.**
+- PUA says "proactive owner delivers end-to-end." Protocol says "owner follows the playbook." **Playbook wins.**
+- PUA says "never say I can't." Protocol says "circuit breaker requires human intervention." **Circuit breaker wins.**
+
+Reframe: **Proactively completing the protocol IS being a good owner.** Skipping setup to jump to implementation is not proactive — it is undisciplined.
+
 ## Ten Critical Rules
 
 1. **Never self-certify completion.** You cannot validate your own work. Always spawn `harness-eval-agent` for independent evaluation.
