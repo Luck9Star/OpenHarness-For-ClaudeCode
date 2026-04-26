@@ -17,6 +17,8 @@ MAX_ITERATIONS=0
 SKILLS=""
 LOOP_MODE="in-session"
 CYCLE_STEPS=""
+MIN_CYCLES=""
+MAX_CYCLES=""
 FORCE=""
 
 if [[ $# -lt 1 ]]; then
@@ -26,6 +28,13 @@ fi
 
 TASK_NAME="$1"
 shift
+
+# Reject flag-like task names (e.g. "--mission")
+if [[ "$TASK_NAME" == -* ]]; then
+  echo "Error: task_name must not start with '-', got '$TASK_NAME'. Provide the task name as the first positional argument." >&2
+  echo "Usage: setup-harness-loop.sh <task-name> [--mode single|dual] [--verify INSTRUCTION] [--max-iterations N] [--skills SKILL1,SKILL2] [--loop-mode in-session|clean] [--force]" >&2
+  exit 1
+fi
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -85,6 +94,22 @@ while [[ $# -gt 0 ]]; do
       CYCLE_STEPS="$2"
       shift 2
       ;;
+    --min-cycles)
+      if [[ $# -lt 2 ]]; then
+        echo "Error: --min-cycles requires an argument (number)" >&2
+        exit 1
+      fi
+      MIN_CYCLES="$2"
+      shift 2
+      ;;
+    --max-cycles)
+      if [[ $# -lt 2 ]]; then
+        echo "Error: --max-cycles requires an argument (number)" >&2
+        exit 1
+      fi
+      MAX_CYCLES="$2"
+      shift 2
+      ;;
     --force)
       FORCE="--force"
       shift
@@ -112,6 +137,12 @@ if [[ -n "$LOOP_MODE" ]]; then
 fi
 if [[ -n "$CYCLE_STEPS" ]]; then
   INIT_ARGS+=(--cycle-steps "$CYCLE_STEPS")
+fi
+if [[ -n "$MIN_CYCLES" ]]; then
+  INIT_ARGS+=(--min-cycles "$MIN_CYCLES")
+fi
+if [[ -n "$MAX_CYCLES" ]]; then
+  INIT_ARGS+=(--max-cycles "$MAX_CYCLES")
 fi
 if [[ -n "$FORCE" ]]; then
   INIT_ARGS+=("$FORCE")

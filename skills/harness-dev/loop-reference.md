@@ -93,7 +93,20 @@ Pause for human inspection and approval.
 
 Spawn `harness-eval-agent` for independent validation.
 
+**ABSOLUTE RULE: eval-agent MUST be spawned via Bash. Self-assessment of verification or convergence is NEVER valid.**
+
+The agent MUST NOT:
+- Read review reports and reason about convergence internally
+- Skip eval-agent spawn because "findings look reduced"
+- Check eval criteria mentally and declare PASS/FAIL without independent agent validation
+- Combine verify with a preceding step (review or fix) in a single turn
+
 1. Read the current step description and eval criteria
 2. Spawn `harness-eval-agent` with eval criteria, step description, instructions to independently verify
 3. The eval-agent reports PASS or FAIL
-4. Log: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Verify: <PASS or FAIL>"`
+4. **Post-spawn verification**: After eval-agent completes, confirm the spawn actually happened by checking:
+   ```bash
+   grep -q "eval-agent" .claude/harness/logs/execution_stream.log && echo "CONFIRMED: eval-agent spawned" || echo "WARNING: No eval-agent spawn evidence found"
+   ```
+   If no evidence is found, the verify step is INCOMPLETE — re-spawn eval-agent.
+5. Log: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Verify: <PASS or FAIL> (eval-agent spawned and confirmed)"`

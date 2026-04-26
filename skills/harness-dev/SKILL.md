@@ -19,6 +19,9 @@ This skill is a **loop execution protocol**. You MUST follow every step below. S
 2. **Mission file exists**: `.claude/harness/mission.md` MUST exist. If missing, the workspace is broken — tell the user.
 3. **Playbook exists**: `.claude/harness/playbook.md` MUST exist. If missing, the workspace is broken — tell the user.
 4. **Eval criteria exists**: `.claude/harness/eval-criteria.md` MUST exist. If missing, the workspace is broken — tell the user.
+5. **Overlap protection (cron safety)**: Read the state file. If `status: running`, check `last_execution_time`:
+   - If `last_execution_time` is within the last 10 minutes: another agent is likely active. Log and exit: `"Overlap detected: status is 'running' and last_execution_time is recent (<10 min). Another agent may be active. Exiting to prevent concurrent state corruption."`
+   - If `last_execution_time` is older than 10 minutes: treat as crash recovery (section 5.2 will handle it).
 
 **If any pre-flight check fails, DO NOT attempt to "just run the tests" or "verify the implementation." A missing workspace means the harness protocol was not followed. Stop and ask the user to run `/harness-start` first.**
 
@@ -58,21 +61,26 @@ Note: The `--verify` instruction and `--skills` are preserved from the existing 
 
 **If `--resume` was specified, skip this step entirely and proceed to Step 5.** The existing state file will be used as-is.
 
-**Otherwise**, run the setup script to create or reset the loop state file. **Before calling the script**, read the existing state file to preserve `verify_instruction` and `skills` (set by `/harness-start`):
+**Otherwise**, check if the existing state is reusable before reinitializing:
 
 ```bash
-# Read existing verify_instruction and skills before reinit
+# Read current state
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" read
 ```
 
-Extract the `verify_instruction`, `skills`, `loop_mode`, and `cycle_steps` values from the JSON output, then forward them:
+Then read `.claude/harness/mission.md` Section 1 (Mission Name). Compare with the state's `task_name`:
+
+- **If state `task_name` matches mission name** AND state is in a non-terminal status (`idle` or `running`) → **Skip reinitialization.** The state is valid for this mission. Proceed to Step 4.
+
+- **If state `task_name` does NOT match** OR state is in a terminal status (`mission_complete` or `failed`) → Reinitialize with `--force`:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup-harness-loop.sh" <task-name> --mode <mode> --max-iterations <N> --verify "<verify_instruction>" --skills "<skills>" --loop-mode <in-session|clean> --cycle-steps <start,end>
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup-harness-loop.sh" <task-name> --mode <mode> --max-iterations <N> --verify "<verify_instruction>" --skills "<skills>" --loop-mode <in-session|clean> --cycle-steps <start,end> --min-cycles <N> --max-cycles <N> --force
 ```
 
-Use the task name from `.claude/harness/mission.md` (Section 1: Mission Name).
-If verify_instruction, skills, loop_mode, or cycle_steps are empty/absent in the existing state, omit the corresponding flag.
+Extract `verify_instruction`, `skills`, `loop_mode`, `cycle_steps`, `min_cycles`, and `max_cycles` from the existing state JSON before reinitializing. Use the task name from `.claude/harness/mission.md` Section 1. If any field is empty/absent, omit the corresponding flag.
+
+**Always include `--force`** when reinitializing — you've already preserved the important values and the old state needs overwriting.
 
 Verify the output confirms successful initialization.
 
@@ -190,6 +198,8 @@ Then, check the current playbook step's **Type** field. For detailed step type i
 
 ### 5.6. Run Validation
 
+**MANDATORY: eval-agent MUST be spawned. Self-assessment is NEVER valid.**
+
 After step execution (except review steps), validate by spawning `harness-eval-agent` with:
 - The eval criteria from `.claude/harness/eval-criteria.md`
 - The current step description
@@ -197,6 +207,13 @@ After step execution (except review steps), validate by spawning `harness-eval-a
 - Instructions to independently verify without reading your implementation
 
 The eval-agent checks file existence, runs verify commands, and evaluates semantic criteria. It reports PASS or FAIL in `.claude/harness/logs/eval_report.json`.
+
+**Anti-shortcut guard**: You MUST NOT skip eval-agent spawning and reason about results yourself. This includes:
+- Reading review_report.json and mentally checking criteria
+- Comparing finding counts between cycles without eval-agent
+- Declaring convergence because "findings look reduced"
+
+If you are in a cycle loop and considering whether to skip the verify step — DON'T. Every cycle iteration requires an independent eval-agent spawn.
 
 ### 5.7. On PASS -- Update State
 
@@ -208,12 +225,16 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "PASS: <step> verif
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" update status idle
 ```
 
-**Cycle behavior**: If `cycle_steps` is set in the state file (e.g., `[1, 3]`), `step-advance` will wrap back to the cycle start when reaching the cycle end. The cycle continues until **all** eval criteria pass in a single iteration. This is the standard pattern for iterative review-fix-verify workflows:
+**Cycle behavior**: If `cycle_steps` is set in the state file (e.g., `[1, 3]`), `step-advance` will wrap back to the cycle start when reaching the cycle end. The cycle continues until **all** eval criteria pass in a single iteration AND `cycle_iteration >= min_cycles` (if set in state file). This is the standard pattern for iterative review-fix-verify workflows:
 ```
 Step 1 (review) → Step 2 (fix) → Step 3 (verify) → back to Step 1 (review) → ... → mission_complete
 ```
 
-Check if all eval criteria are satisfied. For cycle missions, ALL criteria must pass in the same cycle iteration — not accumulated across iterations. If so:
+**Convergence enforcement** (state-file driven):
+- `min_cycles` in state file: The eval-agent convergence criterion MUST check `cycle_iteration >= min_cycles` before allowing PASS. If `min_cycles > 0` and cycle < min_cycles, convergence FAILS automatically.
+- `max_cycles` in state file: `step-advance` will trip the circuit breaker when `cycle_iteration >= max_cycles`, preventing infinite loops. No manual playbook reading needed.
+
+Check if all eval criteria are satisfied. For cycle missions, ALL criteria must pass in the same cycle iteration AND convergence criterion must pass (which includes min_cycles check) — not accumulated across iterations. If so:
 
 ```
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" update status mission_complete

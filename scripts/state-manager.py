@@ -85,6 +85,11 @@ def cmd_read(args):
 
 def cmd_init(args):
     """Initialize a new state file."""
+    # Validate task_name: reject flag-like values (e.g. "--mission")
+    if args and args[0].startswith("-"):
+        print(f"Error: task_name must not start with '-', got '{args[0]}'. "
+              f"Provide the task name as the first positional argument.", file=sys.stderr)
+        sys.exit(1)
     task_name = args[0] if args else "untitled"
     execution_mode = "single"
     verify_instruction = ""
@@ -92,6 +97,8 @@ def cmd_init(args):
     skills = ""
     loop_mode = "in-session"
     cycle_steps = None
+    min_cycles = 0
+    max_cycles = 0
     force = False
 
     def _validate_value(flag, value):
@@ -139,6 +146,26 @@ def cmd_init(args):
                     raise ValueError("cycle_end must be > cycle_start, both >= 1")
             except ValueError as e:
                 print(f"Error: --cycle-steps requires 'start,end' (e.g., '1,3'), got '{args[i+1]}': {e}", file=sys.stderr)
+                sys.exit(1)
+            i += 2
+        elif args[i] == "--min-cycles" and i + 1 < len(args):
+            _validate_value("--min-cycles", args[i + 1])
+            try:
+                min_cycles = int(args[i + 1])
+                if min_cycles < 0:
+                    raise ValueError("must be >= 0")
+            except ValueError as e:
+                print(f"Error: --min-cycles requires a non-negative integer, got '{args[i+1]}': {e}", file=sys.stderr)
+                sys.exit(1)
+            i += 2
+        elif args[i] == "--max-cycles" and i + 1 < len(args):
+            _validate_value("--max-cycles", args[i + 1])
+            try:
+                max_cycles = int(args[i + 1])
+                if max_cycles < 0:
+                    raise ValueError("must be >= 0")
+            except ValueError as e:
+                print(f"Error: --max-cycles requires a non-negative integer, got '{args[i+1]}': {e}", file=sys.stderr)
                 sys.exit(1)
             i += 2
         elif args[i] == "--force":
@@ -189,6 +216,8 @@ def cmd_init(args):
         "loop_mode": loop_mode,
         "cycle_steps": cycle_steps,
         "cycle_iteration": 0,
+        "min_cycles": min_cycles,
+        "max_cycles": max_cycles,
         "knowledge_index": [],
     }
 
@@ -274,9 +303,18 @@ def cmd_step_advance(args):
         if cycle_steps and isinstance(cycle_steps, list) and len(cycle_steps) == 2:
             cycle_start, cycle_end = int(cycle_steps[0]), int(cycle_steps[1])
             if current_num == cycle_end:
+                # Enforce max_cycles: prevent infinite looping
+                max_cycles = int(state.get("max_cycles", 0))
+                cycle_iter = int(state.get("cycle_iteration", 0)) + 1
+                if max_cycles > 0 and cycle_iter >= max_cycles:
+                    state["circuit_breaker"] = "tripped"
+                    state["status"] = "failed"
+                    write_state(state, path)
+                    print(f"Max cycles ({max_cycles}) reached. Circuit breaker tripped.")
+                    return
+
                 next_num = cycle_start
                 # Track cycle iterations
-                cycle_iter = state.get("cycle_iteration", 0) + 1
                 state["cycle_iteration"] = cycle_iter
 
         state["current_step"] = f"Step {next_num}"
