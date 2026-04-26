@@ -9,6 +9,26 @@ allowed-tools: ["Bash", "Task", "Read", "Write", "Edit"]
 
 You are starting the OpenHarness autonomous development loop. Follow these steps precisely.
 
+## MANDATORY PROTOCOL — DO NOT SKIP
+
+This skill is a **loop execution protocol**. You MUST follow every step below. Skipping steps is the #1 cause of false completions.
+
+**Pre-flight checks — ALL must pass before you do any work:**
+
+1. **Workspace exists**: `.claude/harness-state.json` MUST exist. If it does NOT exist, this means `/harness-start` was never run (or was skipped). Output an error and tell the user to run `/harness-start` first. DO NOT proceed. DO NOT start implementing.
+2. **Mission file exists**: `.claude/harness/mission.md` MUST exist. If missing, the workspace is broken — tell the user.
+3. **Playbook exists**: `.claude/harness/playbook.md` MUST exist. If missing, the workspace is broken — tell the user.
+4. **Eval criteria exists**: `.claude/harness/eval-criteria.md` MUST exist. If missing, the workspace is broken — tell the user.
+
+**If any pre-flight check fails, DO NOT attempt to "just run the tests" or "verify the implementation." A missing workspace means the harness protocol was not followed. Stop and ask the user to run `/harness-start` first.**
+
+**During execution — these are NON-NEGOTIABLE:**
+
+- You MUST use `state-manager.py` for state transitions. Manual status updates are forbidden.
+- You MUST spawn `harness-eval-agent` for validation. Running tests yourself is NOT validation — it is self-certification.
+- You MUST NOT output `<promise>LOOP_DONE</promise>` unless ALL eval criteria pass AND all playbook steps are complete AND the pre-completion integration gate passes.
+- You MUST execute steps from the playbook in order. Do not improvise a different workflow.
+
 ## Step 1: Workspace Check
 
 Check if an OpenHarness workspace exists in the current directory:
@@ -151,102 +171,22 @@ First, log a structured round report for traceability:
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" report "<subtask>" "<strategy>" "<verification>" "<state_target>"
 ```
 
-Then, check the current playbook step's **Type** field:
+Then, check the current playbook step's **Type** field. For detailed step type instructions, read `${CLAUDE_PLUGIN_ROOT}/skills/harness-dev/loop-reference.md`. Summary of types:
 
-#### type: implement (or no type field -- backwards compatible)
+| Type | Action | Validates? |
+|---|---|---|
+| `implement` | Code directly (single) or delegate to dev-agent (dual) | Yes — run 5.6 |
+| `review` | Spawn harness-review-agent with cumulative scope | No — skip to 5.7/5.8 |
+| `fix` | Apply fixes from review_report.json + compliance gaps | Yes — run 5.6 |
+| `human-review` | Pause for human, advance step, output LOOP_PAUSE | No |
+| `verify` | Spawn harness-eval-agent for independent validation | No |
 
-Check `execution_mode` in the state file:
-
-**Single Mode (`execution_mode: single`)**
-
-You plan AND code directly. Use Claude Code tools (Read, Write, Edit, Bash, Grep).
-
-If the `skills` field is set in the state file, load each specified skill using the Skill tool before starting step execution.
-
-After completing the step:
-- Log what was done: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Completed <step description>"`
-- Run validation (see step 5.6)
-
-**Dual Mode (`execution_mode: dual`)**
-
-You plan only. Delegate coding to a sub-agent.
-
-*Dual Mode*
-
-1. Read the current step requirements from the playbook
-2. Construct a detailed prompt with: task, file paths, constraints from `.claude/harness/mission.md`, eval criteria, skills to load
-3. Spawn `harness-dev-agent` in the current directory
-4. Wait for the agent to complete
-5. Log the delegation: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Delegated <step> to harness-dev-agent"`
-
-#### type: review
-
-ALWAYS spawn `harness-review-agent` -- read-only code review.
-
-1. Read the current step description from the playbook
-2. **Determine cumulative scope**: Before spawning the review agent, compute the full review scope:
-   - Run `git diff --name-only <branch-point>..HEAD` to list ALL files modified since mission start
-   - If git is unavailable, read the execution stream log to identify all files modified across iterations
-   - Pass this full file list to the review agent as its scope
-3. Spawn `harness-review-agent` with:
-   - The current step description
-   - **Cumulative scope**: ALL modified files since mission start (not just current step's diff)
-   - **Previous fix re-audit**: Explicitly instruct the agent to re-examine fix code from ALL previous iterations, not just current changes
-   - **Density floor**: Instruct the agent that the review must have >= 1 finding per 1500 LOC, with exhaustion evidence for clean areas
-4. The review agent writes findings to `.claude/harness/logs/review_report.json`
-5. Read `.claude/harness/logs/review_report.json` to check the verdict:
-   - `pass` -- verify the `scope.cumulative` field is `true` and `scope.files_reviewed` covers all modified files. Also verify `compliance.requirements_met == compliance.requirements_total` (no spec gaps). If either is incomplete, re-dispatch with expanded scope.
-   - `conditional-pass` -- log warnings, check `compliance.gaps` for missing requirements. Proceed but note issues.
-   - `fail` -- log critical issues and compliance gaps, next fix step will address them
-6. **Verify review quality** (anti-shallow-pass defense):
-   - Check the `density` field in the report: `loc_per_finding` should be <= 1500
-   - Check `blind_spots` field exists and is non-empty for large codebases
-   - Check `compliance.gaps` — if any gap has status `missing`, it's a requirement with zero implementation
-   - If density is suspiciously low (e.g., > 2000 LOC per finding), re-dispatch with stricter instructions
-7. Log: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Review completed: <overall verdict>, compliance <met>/<total>, density <loc_per_finding> LOC/finding, <N> files reviewed (cumulative)"`
-8. Skip validation (step 5.6) for review steps -- proceed directly to step 5.7/5.8
-
-#### type: fix
-
-Read the review report, then apply fixes.
-
-1. Read `.claude/harness/logs/review_report.json`
-2. If report is missing or overall verdict was `pass` with no compliance gaps, skip -- log and advance
-3. Extract issue list AND compliance gaps:
-   - Issues from `issues` array → fix code quality bugs
-   - Gaps from `compliance.gaps` array → implement missing requirements or complete partial implementations
-
-Then dispatch based on execution mode:
-- **Single mode**: Fix yourself using Read, Edit, Write, Bash
-- **Dual mode**: Spawn `harness-dev-agent` with the issue list and compliance gaps
-
-After fixes:
-- Log: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Applied fixes for <N> issues + <M> compliance gaps from review"`
-- Run validation (step 5.6) if step has completion criteria
-
-#### type: human-review
-
-Pause for human inspection and approval.
-
-1. Generate a progress summary of completed steps
-2. Output the summary to the user
-3. **Advance the step counter BEFORE pausing** (P1 fix):
-   ```
-   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" step-advance
-   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" update status paused
-   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Human-review checkpoint: paused for user inspection"
-   ```
-4. Output `<promise>LOOP_PAUSE</promise>` to suspend the loop
-5. When the user resumes (via `/harness-dev --resume`), the next iteration continues from the step after this one
-
-#### type: verify
-
-Spawn `harness-eval-agent` for independent validation.
-
-1. Read the current step description and eval criteria
-2. Spawn `harness-eval-agent` with eval criteria, step description, instructions to independently verify
-3. The eval-agent reports PASS or FAIL
-4. Log: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Verify: <PASS or FAIL>"`
+**Key constraints per type:**
+- **implement**: Single mode uses Read/Write/Edit/Bash/Grep. Dual mode spawns `harness-dev-agent`. Load skills from state file if set.
+- **review**: MUST use cumulative scope (all files since mission start). Verify report quality: density <= 1500 LOC/finding, `scope.cumulative == true`, `compliance.requirements_met == compliance.requirements_total`.
+- **fix**: Extract BOTH `issues` array (code bugs) AND `compliance.gaps` array (missing requirements). Fix both.
+- **human-review**: Advance step counter BEFORE pausing (`step-advance` then `status paused`). Output `<promise>LOOP_PAUSE</promise>`.
+- **verify**: Spawn `harness-eval-agent` with eval criteria + step description.
 
 ### 5.6. Run Validation
 
@@ -301,7 +241,9 @@ After each successful step:
    - Prioritize fixing inter-module dependencies
    - Ensure existing tests continue to pass
    - Add README updates and startup documentation
+   - Automatically add cross-module contract verification as a mandatory sub-step of the next implement step
    - Log: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Switched to integration mode at 60% progress"`
+   - Log: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Integration contract verification added at 60% progress"`
 
 ### 5.10. Mission Completion Check
 
@@ -310,8 +252,13 @@ After each successful step, check:
 1. Are all playbook steps marked as completed?
 2. Have all eval criteria been verified by the eval-agent?
 3. Is the `.claude/harness/mission.md` done condition satisfied?
+4. **Pre-completion integration review gate** -- Before marking mission_complete, the executor MUST:
+   a. Identify all cross-module data boundaries (where Phase A output feeds Phase B input)
+   b. For each boundary: verify that the upstream module's real output contains all fields the downstream module reads
+   c. Run a smoke integration: pipe real upstream output into downstream and verify no empty/missing fields
+   d. If ANY boundary fails -- do NOT output LOOP_DONE, instead log the failure and continue the loop
 
-If ALL three are true:
+If ALL four are true:
 
 ```
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" update status mission_complete

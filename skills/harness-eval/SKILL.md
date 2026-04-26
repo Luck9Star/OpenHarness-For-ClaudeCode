@@ -125,3 +125,27 @@ If the eval-agent observes ANY of these patterns, it MUST flag the convergence c
 | Fix-code skip | iter2 report has no re-audit of iter1 fixes | FAIL convergence |
 | Test-only "convergence" | convergence claimed via test pass rate, no review evidence | FAIL convergence |
 | Metric gaming | findings decrease but LOC reviewed also decreased proportionally | FAIL convergence |
+
+### Cross-Module Contract Verification (MANDATORY)
+
+The eval-agent MUST verify data flow integrity across module boundaries. For each pair of modules where one produces output consumed by another:
+
+1. Identify the interface: upstream module's output schema vs downstream module's input expectations
+2. Run the upstream module to produce real output (or read real output from artifacts)
+3. Feed that output to the downstream module
+4. Assert: ALL fields the downstream reads are present and non-empty in the upstream output
+5. If using manually constructed test fixtures: ALSO require at least one test that uses real upstream output
+
+If cross-module boundaries exist in the mission but no integration test covers them, FAIL the check:
+
+```json
+{"check": "cross_module_integration", "passed": false, "evidence": "Module B (profile_loader) reads 'body' and 'vibe' from Module A (importer) output, but importer output does not contain these fields. No integration test found."}
+```
+
+### Test Fixture Quality Gate (MANDATORY)
+
+When evaluating test suites, the eval-agent MUST check:
+
+1. **Real data ratio**: For each test file, count tests using manually constructed data vs tests using real upstream output. If ratio of real-data tests / total tests < 0.3 for ANY module that has an upstream dependency, FAIL this check.
+2. **Cross-module coverage**: If the mission spans multiple phases/modules, at least one test MUST exercise the full pipeline end-to-end using real module outputs.
+3. **Golden path bias**: If ALL tests only test happy paths (no error cases, no missing fields, no empty inputs), flag as `PASS_WITH_CONCERN`.

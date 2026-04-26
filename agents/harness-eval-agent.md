@@ -56,6 +56,35 @@ Write a JSON verdict to `.claude/harness/logs/eval_report.json`:
 }
 ```
 
+### 4.5. Cross-Module Interface Verification (MANDATORY for multi-phase missions)
+
+When the mission involves multiple phases or modules (detectable from playbook.md having steps that depend on outputs of other steps):
+
+1. Read the playbook to identify cross-module boundaries (where Step N produces output consumed by Step M)
+2. For each boundary:
+   - Read the upstream module's implementation to extract what fields it ACTUALLY produces
+   - Read the downstream module's implementation to extract what fields it ACTUALLY reads
+   - Compare: are all fields the downstream reads actually produced by the upstream?
+3. If mismatches found, add a check:
+
+```json
+{
+  "name": "cross_module_interface: <upstream> -> <downstream>",
+  "passed": false,
+  "evidence": "Downstream module reads fields [body, vibe] via .get(), but upstream only produces [id, name, capabilities]. Missing: body, vibe"
+}
+```
+
+4. Also check: do tests for the downstream module use real upstream output or manually constructed fixtures? If only manual fixtures, add concern:
+
+```json
+{
+  "name": "test_data_integrity: <module>",
+  "passed": false,
+  "evidence": "Tests for profile_loader use manually constructed dict with body/vibe fields. Real upstream (importer) does not produce these fields. Tests pass but real pipeline fails."
+}
+```
+
 ### 5. Verdict Rules
 
 - Only mark `passed: true` if you have **conclusive evidence**. File exists AND contains expected content. Test output shows all passing. Output matches specification.

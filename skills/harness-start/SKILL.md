@@ -9,6 +9,43 @@ allowed-tools: ["Bash", "Read", "Write", "Edit", "Grep", "Glob"]
 
 Initialize a new OpenHarness autonomous development task workspace.
 
+## MANDATORY PROTOCOL — DO NOT SKIP
+
+This skill is a **workspace initialization protocol**, not a coding task. You MUST complete ALL workspace setup steps (Steps 0–8) before writing any implementation code. The workspace files are the control plane for the harness-dev loop — without them, the loop cannot function.
+
+**Hard gates — each must pass before proceeding:**
+
+1. **Workspace directory exists**: `mkdir -p .claude/harness/logs` — run this FIRST
+2. **mission.md written**: Must exist at `.claude/harness/mission.md` with NO `[placeholder]` markers
+3. **playbook.md written**: Must exist at `.claude/harness/playbook.md` with concrete steps
+4. **eval-criteria.md written**: Must exist at `.claude/harness/eval-criteria.md` with machine-verifiable checks
+5. **progress.md written**: Must exist at `.claude/harness/progress.md`
+6. **State file initialized**: `state-manager.py init` must succeed
+7. **Verification**: Re-read all 4 workspace files and confirm NO `[placeholder]` remains
+
+**If you find yourself writing implementation code (creating Python/Rust/JS files, editing source code) BEFORE completing ALL 7 gates above — STOP. You have skipped the protocol. Go back and complete workspace setup first.**
+
+**Context firewall — DO NOT read source code during this skill:**
+- You MUST NOT read, Glob, Grep, or scan any source code files (`.py`, `.rs`, `.ts`, `.js`, etc.) in the project.
+- You MUST NOT analyze existing implementations, modules, or tests.
+- The ONLY file you may read is the `--from-plan` file (if specified) — and ONLY that single file.
+- All information needed to write workspace files comes from: the user's task description, `--verify` instruction, `--from-plan` file, and the quality profile answers.
+- Detailed codebase reading and analysis happens during `/harness-dev` execution — NOT during workspace initialization.
+
+**Skill isolation — DO NOT load other skills during harness-start:**
+- You MUST NOT invoke the Skill tool to load any other skills (pua, superpowers, orch, tdd, etc.) during harness-start execution.
+- The `--skills` argument specifies skills for the `/harness-dev` execution phase — they are stored in the state file and loaded LATER by harness-dev.
+- Loading personality/behavioral overlays (PUA, orch) during workspace initialization hijacks the protocol by injecting contradictory instructions. This has caused 100% of harness-start failures observed to date.
+
+**"Already implemented" is NOT a valid reason to skip workspace setup:**
+- Even if you believe all features are already implemented, you MUST still create all 4 workspace files and run state-manager.py init.
+- The workspace files capture the task contract — mission.md, playbook.md, eval-criteria.md are the specification for verification.
+- `/harness-dev` will verify the existing implementation against these specs and report completion. This is the correct path.
+
+**Why these rules exist**: Reading source code causes context explosion. Loading other skills causes behavioral override. Both dilute the MANDATORY PROTOCOL instructions and lead to skipping workspace setup. These are the #1 and #2 causes of harness-start failures.
+
+This skill DOES NOT implement features. It ONLY creates the workspace. Implementation happens when `/harness-dev` runs.
+
 ## Step 0: Parse Arguments & Detect Mode
 
 Parse the user's arguments from `$ARGUMENTS`:
@@ -46,155 +83,7 @@ What task would you like the harness to execute? Describe it in one sentence.
 
 Skip this entire step in Quick mode — go directly to Step 2.
 
-### Step 1A: Task Analysis & Conditional Codebase Scan
-
-Before touching any files, **classify the task** to determine how much codebase context is needed.
-
-**Task classification** — analyze the user's description and pick one:
-
-| Category | Signals | Codebase read needed? |
-|---|---|---|
-| **Targeted change** | User names specific files, functions, or modules (e.g., "fix auth.ts login bug") | **Light**: Read only the named files/modules |
-| **Feature/addition** | User describes new functionality without naming files (e.g., "add JWT auth middleware") | **Medium**: Detect tech stack + scan relevant module structure |
-| **Cross-cutting refactor** | User describes system-wide change (e.g., "migrate Python to Rust", "improve error handling across all crates") | **Full**: Full tech stack + project structure + test patterns |
-| **Non-code task** | Documentation, config, planning (e.g., "write API docs", "update CI config") | **None**: Skip codebase read entirely |
-| **Ambiguous** | Can't tell from description alone | **Ask the user** (see below) |
-
-**If classification is ambiguous**, ask the user a single clarifying question:
-
-```
-To scope this task correctly, do I need to read the codebase first?
-- "Yes, full scan" — I'll analyze the project structure before planning
-- "Yes, but only [module/directory]" — I'll read only the specified area
-- "No, just plan from my description" — I'll work from your description alone
-```
-
-Then, based on the classification, perform the appropriate level of analysis:
-
-**Full scan** (cross-cutting refactor):
-1. **Detect tech stack**: Use Glob to find key config files (`package.json`, `Cargo.toml`, `pyproject.toml`, `go.mod`, etc.)
-2. **Scan project structure**: List top-level directories and key entry points
-3. **Check existing tests**: Find test directories/files to understand test patterns
-
-**Medium scan** (feature/addition):
-1. **Detect tech stack** (same as above)
-2. **Scan only the relevant module/directory** that the feature likely touches
-
-**Light scan** (targeted change):
-1. **Read only the specific files** the user named — no project-wide scanning
-
-**None** (non-code task):
-- Skip all codebase reading. Proceed directly with the task description.
-
-After any level of scan, expand the user's task description with the gathered context:
-
-- Add concrete scope boundaries based on the codebase structure (if scanned)
-- Identify which files/modules are likely involved
-- Clarify ambiguous terms using project context
-- Add implementation constraints (follow existing patterns, match conventions)
-
-Present the expanded task description to the user:
-
-```
-Based on [project analysis / file review / your description], here's the expanded task:
-
-[Expanded description with concrete scope, affected modules, and constraints]
-
-Affected areas:
-- [module/file 1]: [what changes here]
-- [module/file 2]: [what changes here]
-
-Does this look correct? Any adjustments?
-```
-
-Wait for user confirmation. Incorporate any feedback before proceeding.
-
-### Step 1B: Define Deliverables
-
-From the expanded task description, enumerate concrete deliverables:
-
-```
-Based on the task scope, the deliverables will be:
-
-1. [Deliverable 1 — e.g., "src/auth/middleware.ts: JWT authentication middleware"]
-2. [Deliverable 2 — e.g., "tests/auth/middleware.test.ts: Unit tests covering token validation"]
-3. [Deliverable 3 — e.g., "Updated route handlers to use middleware"]
-
-Is this the right scope? Anything to add or remove?
-```
-
-Each deliverable must be:
-- A concrete file or file section (not a vague "improve X")
-- Tied to a specific module/area from Step 1A
-- Independently verifiable
-
-Wait for user confirmation.
-
-### Step 1C: Derive Verify Instruction
-
-Generate a `--verify` instruction from the deliverables. The instruction must be:
-- **Quantified**: use numbers, not "thorough" or "complete"
-- **Machine-verifiable**: eval-agent can check each condition by running commands or reading files
-- **Cover all deliverables**: one check per deliverable minimum
-
-```
-Based on the deliverables, here's the proposed verify instruction:
-
---verify "
-1. [Check for deliverable 1 — e.g., "auth middleware file exists and exports correct functions"]
-2. [Check for deliverable 2 — e.g., "all unit tests pass (npm test)"]
-3. [Check for deliverable 3 — e.g., "protected routes return 401 without valid token"]
-"
-
-Each check maps directly to a deliverable. Want to adjust any checks?
-```
-
-If the user already provided `--verify`, present the derived version alongside and ask which they prefer.
-
-Wait for user confirmation. Use the final confirmed verify instruction.
-
-### Step 1D: Recommend Skills
-
-Based on the tech stack detected in Step 1A and the deliverables, recommend skills:
-
-```
-Based on the tech stack and task type, these skills may help:
-
-Recommended:
-- [skill-name]: [reason — e.g., "project uses React, skill provides component patterns"]
-
-Optional:
-- [skill-name]: [reason — e.g., "task involves API design, skill provides REST patterns"]
-
-Skip:
-- [skill-name]: [reason — e.g., "no database changes needed"]
-
-Use recommended skills? Or adjust the list?
-```
-
-If the user already specified `--skills`, validate them against the tech stack and note any gaps.
-
-Wait for user confirmation. Use the final confirmed skill list.
-
-### Step 1E: Loop Mode Selection
-
-Ask the user how each iteration should handle context:
-
-```
-How should each loop iteration handle conversation context?
-
-- "continuous" (default) — Same session throughout. Faster iteration, context accumulates. Agent is instructed to ignore stale context. Good for short missions or tasks where context carry-over is helpful.
-- "clean" — Same session, but auto-compress context between iterations (via /compact). Prevents stale context from misleading the agent at the cost of one extra step per iteration. Good for long missions with many steps.
-
-Which mode?
-```
-
-**Guidelines:**
-- If the task has <= 3 steps, default to "continuous" and skip this question — inform the user.
-- If the task has 4+ steps OR involves review/audit cycles, ask this question explicitly.
-- Store the answer as `loop_mode`: "in-session" for continuous, "clean" for auto-compressed.
-
-Wait for user confirmation.
+In wizard mode, read `${CLAUDE_PLUGIN_ROOT}/skills/harness-start/wizard-reference.md` and follow Steps 1A–1E in order. Each step requires user confirmation before proceeding. The wizard covers: task classification & codebase scan, deliverable definition, verify instruction derivation, skill recommendation, and loop mode selection.
 
 ## Step 1.5: Workspace Overwrite Check
 
@@ -262,80 +151,7 @@ Copy the templates from `${CLAUDE_PLUGIN_ROOT}/templates/` and fill them complet
 mkdir -p .claude/harness/logs
 ```
 
-### .claude/harness/mission.md
-
-Fill based on the task description (use the expanded version from Step 1A if wizard was used):
-- **Mission Name**: the task name from Step 4
-- **Mission Objective**: the user's task description (expanded version if wizard refined it)
-- **Done Definition**: derive from the verified deliverables in Step 1B — each deliverable maps to a done condition
-- **Boundaries**: set allowed/prohibited operations
-- **Execution Parameters**: set verify_instruction and execution_mode from user input
-- **Output Definition**: list the confirmed deliverables from Step 1B
-
-### .claude/harness/playbook.md
-
-Create a concrete step-by-step plan using the quality profile from Step 2.
-
-**Step types** (each step must have a `Type` field):
-- `implement` -- write/create/modify code
-- `review` -- spawn harness-review-agent for read-only code review
-- `fix` -- apply fixes based on review feedback (reads `.claude/harness/logs/review_report.json`)
-- `verify` -- spawn harness-eval-agent for validation
-- `human-review` -- pause loop for human inspection and approval
-
-**Dynamic step generation rules based on quality profile**:
-
-- **User wants review (review_rounds > 0)**: After each `implement` step, insert a `review` step followed by a `fix` step.
-- **User wants TDD**: For each logical unit of work: `verify` (write tests first) -> `implement` (make tests pass).
-- **User wants quick (no review, no TDD)**: Just `implement` + final `verify`.
-- **Simple task (auto-detected)**: Minimal: `implement` followed by a single `verify`.
-
-**Human-review insertion rules** (only if user explicitly requests checkpoints):
-- **1-2 implement steps**: No human-review needed
-- **3-4 implement steps**: Insert one `human-review` after the midpoint
-- **5+ implement steps**: Insert at 33%, 66%, and before final `verify`
-
-**By default, do NOT insert human-review steps.**
-
-**General playbook rules**:
-- Each step must have: type, what to do, tools to use, completion criteria, failure handling
-- Steps should be ordered by dependency
-- Add a dependency diagram at the bottom
-- The final step should always be a `verify` step
-- When wizard was used, align steps with the deliverables from Step 1B
-
-**Cycle playbook** (for iterative review-fix-verify tasks):
-- If the task type is "review" or "iterative improvement" (e.g., "review codebase and fix all issues"), use a cycle playbook:
-  ```
-  Step 1: review (cumulative scope)
-  Step 2: fix (apply findings)
-  Step 3: verify (eval-agent validation)
-  ```
-  Set `--cycle-steps 1,3` in the init command so the loop cycles: review → fix → verify → review → ... until all criteria pass.
-- The done condition should be: "All review findings resolved, all tests pass, no new issues found in re-review"
-
-### .claude/harness/eval-criteria.md
-
-Create validation standards based on the verify instruction:
-- Start with the verified checks from Step 1C — each check becomes a standard
-- Add structural validation standards (file existence, content plausibility)
-- Each standard: check name, method, pass condition, on-fail action
-- Keep all checks machine-verifiable
-- Ensure every deliverable from Step 1B has at least one corresponding check
-
-**Quality enforcement rules** (prevent Goodhart's Law — process compliance != quality):
-
-- **Every deliverable check must have a quality criterion**, not just existence. "File exists" is never sufficient alone — pair it with content depth, structure, or behavioral verification.
-- **For review/audit tasks**: Include the Review Task Standards from the template (Density Check, Exhaustion Check, Convergence with Proof, Blind Spot Acknowledgment). These are MANDATORY for any task whose primary output is a review report.
-- **For implementation tasks**: Each functional check should have both a positive condition (does it work?) and a depth condition (is it complete enough?). Example: not just "tests pass" but "tests cover >= N scenarios including error paths."
-- **Never write a pass condition that can be trivially satisfied.** Avoid bare "file exists", "report contains N sections", "no new P0 findings" without requiring evidence of depth.
-
-### .claude/harness/progress.md
-
-Initialize with:
-- Task name, current timestamp, conditions count from `.claude/harness/mission.md`
-- All conditions set to `Not Met`
-- Empty execution history section
+For detailed template file structure (mission.md, playbook.md, eval-criteria.md, progress.md), read `${CLAUDE_PLUGIN_ROOT}/skills/harness-start/templates-reference.md`. Key rules: every `[placeholder]` must be replaced; every deliverable must have a corresponding check; cross-module integration checks are mandatory for multi-phase tasks.
 
 ## Step 6: Initialize State File
 
