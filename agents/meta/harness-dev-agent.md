@@ -1,6 +1,7 @@
 ---
 name: harness-dev-agent
 description: Autonomous code execution agent for OpenHarness dual mode. Implements code based on the tech spec from the planning agent.
+category: meta
 tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Skill"]
 ---
 

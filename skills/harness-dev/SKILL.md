@@ -190,11 +190,26 @@ Then, check the current playbook step's **Type** field. For detailed step type i
 | `verify` | Spawn harness-eval-agent for independent validation | No |
 
 **Key constraints per type:**
-- **implement**: Single mode uses Read/Write/Edit/Bash/Grep. Dual mode spawns `harness-dev-agent`. Load skills from state file if set.
+- **implement**: Single mode uses Read/Write/Edit/Bash/Grep. Dual mode spawns agent (see Domain Agent Routing below). Load skills from state file if set.
 - **review**: MUST use cumulative scope (all files since mission start). Verify report quality: density <= 1500 LOC/finding, `scope.cumulative == true`, `compliance.requirements_met == compliance.requirements_total`.
-- **fix**: Extract BOTH `issues` array (code bugs) AND `compliance.gaps` array (missing requirements). Fix both.
+- **fix**: Extract BOTH `issues` array (code bugs) AND `compliance.gaps` array (missing requirements). Fix both. Use domain agent routing (below) for specialist fixes.
 - **human-review**: Advance step counter BEFORE pausing (`step-advance` then `status paused`). Output `<promise>LOOP_PAUSE</promise>`.
 - **verify**: Spawn `harness-eval-agent` with eval criteria + step description.
+
+**Domain Agent Routing (implement and fix steps):**
+
+Before spawning an agent for `implement` or `fix` steps, check if a domain specialist should handle the task:
+
+1. **Manual override**: If the playbook step specifies a `specialist:` field (e.g., `specialist: security-engineer`), use that agent directly.
+2. **Auto-discovery**: Otherwise, read the step description and scan `agents/domain/*.md` for matching `route_keywords` in each agent's frontmatter.
+   - Use glob: `agents/domain/*.md` to list all domain agents
+   - Read each agent's YAML frontmatter to extract `route_keywords` (no need to read the full file)
+   - Match keywords against the step description (case-insensitive)
+3. **Select best match**: If one or more domain agents match, use the one with the most keyword hits. If multiple tie, prefer the first match.
+4. **Fallback**: If no domain agent matches, use `harness-dev-agent` (existing behavior).
+5. **Log the routing decision**: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Routed <step> to <agent-name> (match: <keywords>)"` or `"... to harness-dev-agent (no domain match)"`
+
+Domain agents follow the same spawn contract as `harness-dev-agent` — they receive the step description, constraints from mission.md, eval criteria, and skills to load. Their output format may differ (domain-specific reports) but the harness loop treats them as drop-in replacements for the code execution phase. `harness-eval-agent` still provides independent validation regardless of which agent did the implementation.
 
 ### 5.6. Run Validation
 

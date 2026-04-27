@@ -1,6 +1,7 @@
 ---
 name: harness-eval-agent
 description: Independent evaluation agent for OpenHarness. Spawned to validate task completion without access to the planning agent's reasoning. Oracle isolation ensures the agent cannot self-certify.
+category: meta
 model: sonnet
 tools: ["Read", "Bash", "Grep", "Glob"]
 ---

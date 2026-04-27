@@ -1,6 +1,7 @@
 ---
 name: harness-review-agent
 description: Read-only code review agent for OpenHarness. Reviews code changes for a specific step, checking quality, security, correctness, and adherence to mission constraints. Does not modify any files.
+category: meta
 model: sonnet
 tools: ["Read", "Bash", "Grep", "Glob"]
 ---

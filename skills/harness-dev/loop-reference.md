@@ -24,10 +24,14 @@ After completing the step:
 You plan only. Delegate coding to a sub-agent.
 
 1. Read the current step requirements from the playbook
-2. Construct a detailed prompt with: task, file paths, constraints from `.claude/harness/mission.md`, eval criteria, skills to load
-3. Spawn `harness-dev-agent` in the current directory
-4. Wait for the agent to complete
-5. Log the delegation: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Delegated <step> to harness-dev-agent"`
+2. **Select agent** — run domain agent routing (see SKILL.md section 5.5):
+   - If playbook step has `specialist:` field → use that agent
+   - Otherwise glob `agents/domain/*.md`, match `route_keywords` against step description
+   - If a domain agent matches → use it; otherwise fall back to `harness-dev-agent`
+3. Construct a detailed prompt with: task, file paths, constraints from `.claude/harness/mission.md`, eval criteria, skills to load
+4. Spawn the selected agent in the current directory
+5. Wait for the agent to complete
+6. Log the delegation: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Delegated <step> to <agent-name>"`
 
 ## type: review
 
@@ -68,7 +72,7 @@ Read the review report, then apply fixes.
 
 Then dispatch based on execution mode:
 - **Single mode**: Fix yourself using Read, Edit, Write, Bash
-- **Dual mode**: Spawn `harness-dev-agent` with the issue list and compliance gaps
+- **Dual mode**: Select agent via domain routing (see SKILL.md section 5.5), falling back to `harness-dev-agent`. Route by: playbook `specialist:` field first, then match review report issue categories against domain agent `route_keywords` (e.g., security issues → security-engineer, schema issues → database-optimizer).
 
 After fixes:
 - Log: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Applied fixes for <N> issues + <M> compliance gaps from review"`

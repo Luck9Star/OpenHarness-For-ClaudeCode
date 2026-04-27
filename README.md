@@ -414,12 +414,51 @@ AI 质量偏好提问:
 | Oracle 隔离 | eval-agent 无法看到主 Agent 的推理过程，只看工作区产物 |
 | 任务修改接口 | `.claude/harness/` 下的合约文件只能通过 `/harness-edit` 修改 |
 
+## Agent 体系
+
+OpenHarness 采用**双层 Agent 架构**——元流程层负责编排循环，领域层提供专业能力：
+
+```
+agents/
+  meta/                 元流程层 — 框架耦合的编排 agent
+    harness-dev-agent     代码执行器：从 tech spec 实现代码
+    harness-eval-agent    Oracle 隔离验证器：独立验证，不可自我认证
+    harness-review-agent  只读代码审查器：累积范围审查 + 合规检查
+  domain/               领域层 — 独立专业 agent，可在 harness 内/外使用
+    security-engineer     威胁建模、漏洞评估、安全代码审查
+    code-reviewer         深度代码审查（正确性、可维护性）
+    database-optimizer    数据库 Schema 设计、查询优化、迁移策略
+    api-tester            API 功能/安全/性能测试
+    evidence-collector    基于证据的 QA，事实核查
+    devops-automator      CI/CD、IaC、部署、监控
+```
+
+### 领域 Agent 自动路由
+
+`harness-dev` 执行 `implement` 和 `fix` 步骤时，会根据步骤描述**自动匹配**领域 agent：
+
+1. **手动覆盖**：playbook 步骤的 `specialist:` 字段指定 agent，直接使用
+2. **关键词自动发现**：扫描 `agents/domain/*.md` 的 `route_keywords`，匹配步骤描述
+3. **降级兜底**：无领域 agent 匹配时，回退到 `harness-dev-agent`
+
+例如：步骤描述含 "优化查询性能" → 自动匹配 `database-optimizer`（关键词：database, query, SQL, 查询优化）；含 "添加认证中间件" → 自动匹配 `security-engineer`（关键词：security, auth, 认证）。
+
+### 添加新 Agent
+
+1. 在 `agents/domain/` 创建 `<name>.md`，包含 YAML frontmatter（`name`, `description`, `category: domain`, `model`, `tools`, `route_keywords`）+ Markdown prompt body
+2. 更新 `agents/AGENTS.md` 注册到索引
+3. `route_keywords` 即被自动发现，无需修改路由逻辑
+
+待接入 agent 清单见 `agents/TODO.md`。
+
 ## 架构
 
 ```
 openharness-cc/
   skills/          7 个行为技能（core, start, dev, edit, status, eval, dream）
-  agents/          3 个自主 agent（dev-agent, eval-agent, review-agent）
+  agents/
+    meta/          3 个元流程 agent（dev-agent, eval-agent, review-agent）
+    domain/        6 个领域 agent（security, code-reviewer, database, api-tester, evidence, devops）
   hooks/           3 个事件 hook（SessionStart, PreToolUse, Stop）
   scripts/         4 个工具脚本（state-manager, stop-hook, setup-loop, cleanup）
   templates/       4 个脚手架模板（mission, playbook, eval-criteria, progress）
@@ -436,6 +475,49 @@ openharness-cc/
 | `harness_dream.py` | `harness-dream` skill + `/loop 24h` |
 | `harness_linter.py` | PreToolUse hook |
 | `heartbeat.md` | `.claude/harness-state.json` |
+
+## 最佳实践命令
+
+### 常见场景
+
+```bash
+# 快速 bugfix — single 模式 + TDD
+/harness-start "修复用户登录超时问题" --verify "所有测试通过" --skills "tdd" --quick
+/loop /harness-dev
+
+# 多文件重构 — dual 模式保护上下文
+/harness-start --from-plan docs/refactor-plan.md --mode dual --verify "所有现有测试通过，无回归"
+/loop /harness-dev --mode dual
+
+# 严格审查 — 3 轮 review-fix 循环（交互时选择）
+/harness-start "实现支付集成模块" --verify "所有测试通过，支付流程正确" --skills "tdd,rest-api-design"
+
+# 指定领域专家（在 playbook 步骤中加 specialist: security-engineer）
+/harness-start "为所有 API 端点添加 JWT 认证中间件" \
+  --verify "所有端点返回 401 未认证，合法 token 返回 200"
+
+# 查看进度
+/harness-status
+
+# 修改验证标准
+/harness-edit --verify "所有 API 端点返回正确 HTTP 状态码且响应时间 < 200ms"
+```
+
+### 执行模式选择
+
+| 场景 | 推荐模式 | 原因 |
+|---|---|---|
+| Bugfix、单文件修改 | `single` | 上下文足够，无需额外 agent |
+| 多文件重构、架构调整 | `dual` | 保护主 agent 上下文不爆炸 |
+| 复杂功能开发 | `dual` | 规划与编码分离，子 agent 聚焦实现 |
+| 快速原型 | `single --quick` | 跳过向导，立即开始 |
+
+### Verify 编写口诀
+
+- **交付物是文件** — eval-agent 能读文件验证，不能验证"是否深入"
+- **一一对应** — 任务有 N 个目标，verify 就要有 N 条检查
+- **量化标准** — "每 crate >=3 条发现" 优于 "充分评审"
+- **拆任务优先** — 单一目标的任务验证更精确
 
 ## 许可证
 

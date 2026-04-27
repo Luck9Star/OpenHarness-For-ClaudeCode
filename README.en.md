@@ -385,12 +385,51 @@ flowchart TD
 | Oracle isolation | eval-agent cannot see the main agent's reasoning — only workspace artifacts |
 | Task modification gate | Contract files in `.claude/harness/` are only editable through `/harness-edit` |
 
+## Agent System
+
+OpenHarness uses a **dual-layer agent architecture** — the meta-process layer orchestrates the loop, while the domain layer provides specialized expertise:
+
+```
+agents/
+  meta/                 Meta-Process Layer — harness-coupled orchestration agents
+    harness-dev-agent     Code executor: implements from tech spec
+    harness-eval-agent    Oracle-isolated validator: independent verification, no self-certification
+    harness-review-agent  Read-only code reviewer: cumulative scope review + compliance checking
+  domain/               Domain Layer — standalone expertise agents, usable inside or outside harness
+    security-engineer     Threat modeling, vulnerability assessment, secure code review
+    code-reviewer         Deep code review (correctness, maintainability)
+    database-optimizer    Schema design, query tuning, migration strategies
+    api-tester            API functional/security/performance testing
+    evidence-collector    Evidence-based QA, reality checking
+    devops-automator      CI/CD, IaC, deployment, monitoring
+```
+
+### Domain Agent Auto-Routing
+
+When `harness-dev` executes `implement` or `fix` steps, it **automatically selects** the best domain agent:
+
+1. **Manual override**: playbook step's `specialist:` field takes precedence
+2. **Keyword auto-discovery**: scans `agents/domain/*.md` `route_keywords` against step description
+3. **Fallback**: defaults to `harness-dev-agent` when no domain agent matches
+
+Example: step "optimize query performance" → auto-matches `database-optimizer` (keywords: database, query, SQL); step "add auth middleware" → auto-matches `security-engineer` (keywords: security, auth, encryption).
+
+### Adding New Agents
+
+1. Create `<name>.md` in `agents/domain/` with YAML frontmatter (`name`, `description`, `category: domain`, `model`, `tools`, `route_keywords`) + Markdown prompt body
+2. Register in `agents/AGENTS.md` index
+3. `route_keywords` are auto-discovered — no routing logic changes needed
+
+See `agents/TODO.md` for the agent backlog.
+
 ## Architecture
 
 ```
 openharness-cc/
   skills/          7 behavioral skills (core, start, dev, edit, status, eval, dream)
-  agents/          3 autonomous agents (dev-agent, eval-agent, review-agent)
+  agents/
+    meta/          3 meta-process agents (dev-agent, eval-agent, review-agent)
+    domain/        6 domain agents (security, code-reviewer, database, api-tester, evidence, devops)
   hooks/           3 event hooks (SessionStart, PreToolUse, Stop)
   scripts/         4 utility scripts (state-manager, stop-hook, setup-loop, cleanup)
   templates/       4 scaffold templates (mission, playbook, eval-criteria, progress)
@@ -407,6 +446,49 @@ openharness-cc/
 | `harness_dream.py` | `harness-dream` skill + `/loop 24h` |
 | `harness_linter.py` | PreToolUse hook |
 | `heartbeat.md` | `.claude/harness-state.json` |
+
+## Best Practice Commands
+
+### Common Scenarios
+
+```bash
+# Quick bugfix — single mode + TDD
+/harness-start "Fix user login timeout" --verify "All tests pass" --skills "tdd" --quick
+/loop /harness-dev
+
+# Multi-file refactor — dual mode protects context
+/harness-start --from-plan docs/refactor-plan.md --mode dual --verify "All existing tests pass, no regressions"
+/loop /harness-dev --mode dual
+
+# Strict review — multiple review-fix cycles (selected during interactive setup)
+/harness-start "Implement payment integration module" --verify "All tests pass, payment flow correct" --skills "tdd,rest-api-design"
+
+# Specify domain specialist (add specialist: security-engineer to playbook step)
+/harness-start "Add JWT auth middleware to all API endpoints" \
+  --verify "All endpoints return 401 for unauthenticated, 200 for valid tokens"
+
+# Check progress
+/harness-status
+
+# Update verification criteria
+/harness-edit --verify "All API endpoints return correct HTTP status codes with response time < 200ms"
+```
+
+### Execution Mode Selection
+
+| Scenario | Recommended Mode | Why |
+|---|---|---|
+| Bugfix, single-file change | `single` | Sufficient context, no extra agent needed |
+| Multi-file refactor, architecture change | `dual` | Protects main agent context from explosion |
+| Complex feature development | `dual` | Plan/code separation, sub-agent focuses on implementation |
+| Rapid prototype | `single --quick` | Skip wizard, start immediately |
+
+### Verify Writing Tips
+
+- **Deliverables are files** — eval-agent verifies file contents, not "was it thorough"
+- **1:1 mapping** — N objectives in the task = N checks in verify
+- **Quantify criteria** — ">=3 findings per crate" beats "thorough review"
+- **Split tasks first** — single-objective tasks are easier to verify precisely
 
 ## License
 
