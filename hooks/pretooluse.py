@@ -16,20 +16,26 @@ from pathlib import Path
 
 # Files that are always write-protected (managed by scripts only)
 PROTECTED_FILES = {
-    "mission.md",
-    ".claude/harness-state.local.md",
+    ".claude/harness-state.json",
 }
 
 # Tools that modify files and must be checked
 WRITE_TOOLS = {"Write", "Edit", "MultiEdit"}
 
 
+# Project boundary markers for upward search
+BOUNDARY_MARKERS = {".git", "CLAUDE.md", ".claude-plugin"}
+
+
 def find_harness_root():
-    """Walk up from cwd to find a directory with .claude/harness-state.local.md."""
+    """Walk up from cwd to find a directory with .claude/harness-state.json."""
     p = Path.cwd()
     while p != p.parent:
-        if (p / ".claude" / "harness-state.local.md").exists():
+        if (p / ".claude" / "harness-state.json").exists():
             return p
+        # Stop at project boundaries
+        if any((p / m).exists() for m in BOUNDARY_MARKERS):
+            return None
         p = p.parent
     return None
 
@@ -153,7 +159,7 @@ def main():
         sys.exit(0)
 
     # Check 2: Mission boundary enforcement
-    mission_path = harness_root / "mission.md"
+    mission_path = harness_root / ".claude/harness/mission.md"
     if mission_path.exists():
         prohibited_patterns = read_prohibited_patterns(mission_path)
         matched, match_reason = path_matches_prohibited(file_path, prohibited_patterns)

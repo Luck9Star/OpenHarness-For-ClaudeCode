@@ -15,7 +15,7 @@ Turns Claude Code into a 24/7 autonomous development worker through **mechanical
 - **Dynamic workflow** — automatically generates develop/review/fix cycles based on task needs
 - **Switchable execution modes** — single (plan+code) or dual (plan → spawn coder agent)
 - **Skill injection** — specify skills for the dev-agent to load on demand
-- **`/loop` integration** — recurring execution without external cron
+- **`/loop` integration** — stop-hook drives step-by-step loop, one iteration per step
 
 ## Quick Start
 
@@ -27,7 +27,7 @@ claude --plugin-dir /path/to/openharness-cc
 /harness-start "Build a REST API for user management" --verify "Ensure all tests pass"
 
 # Start autonomous development loop
-/harness-dev
+/loop /harness-dev
 
 # Check current status
 /harness-status
@@ -68,8 +68,44 @@ Tell Claude Code what you want done. The plugin auto-generates contract files.
 | `--mode single\|dual` | No | Execution mode, default `single` | `--mode dual` |
 | `--verify "instruction"` | No | Natural language verification instruction for eval-agent | `--verify "Ensure all tests pass"` |
 | `--skills "s1,s2"` | No | Comma-separated skill names for dev-agent to load | `--skills "tdd,react-patterns"` |
+| `--quick` | No | Skip wizard, use provided arguments as-is | `--quick` |
 
 > *At least one of task description or `--from-plan` is required. When both are provided, the plan provides structure (steps, architecture) and the description adds supplementary context and constraints.
+
+### Interactive Wizard
+
+When critical parameters are missing (no `--verify`, no description, etc.), `/harness-start` enters **wizard mode** — a multi-turn interactive flow that helps you define a precise task:
+
+| Wizard Step | What It Does | Output |
+|---|---|---|
+| **1A: Task Expansion** | Analyzes your codebase (tech stack, structure, test patterns), expands your description with concrete scope and affected files | Refined task description |
+| **1B: Deliverables** | Enumerates concrete file-level deliverables from the expanded task | List of verifiable outputs |
+| **1C: Verify Derivation** | Generates `--verify` from deliverables — each check is quantified and machine-verifiable, one per deliverable | Precise verify instruction |
+| **1D: Skill Recommendation** | Recommends skills based on detected tech stack and task type | Validated skill list |
+
+Each step presents its output for your confirmation before proceeding. This ensures verify coverage matches actual deliverables — solving the "incomplete verify" anti-pattern at initialization time.
+
+**Quick mode** bypasses the wizard entirely. It activates when:
+1. Task description (or `--from-plan`) is provided
+2. `--verify` is provided
+3. `--quick` flag is set, OR both `--mode` and `--skills` are specified
+
+```bash
+# Wizard mode — missing verify triggers interactive flow
+/harness-start "Add user registration and login"
+
+# Quick mode — all params present, no wizard
+/harness-start "Add user registration and login" \
+  --verify "All tests pass, registration API returns 201" \
+  --skills "tdd" --mode single
+```
+
+**Task overwrite behavior:** Each project directory supports only one active harness task at a time. Running `/harness-start` again:
+
+- If an active task exists (status `running` or `idle`), you'll be prompted for confirmation before overwriting
+- Completed (`mission_complete`) or failed (`failed`) tasks can be overwritten without confirmation
+- Before overwriting, the old task's workspace files are automatically archived to `.claude/harness/archive/{task-name}-{timestamp}/`
+- The last 5 archives are kept; older ones are pruned by `cleanup.py`
 
 ### Dynamic Workflow Generation
 
@@ -87,6 +123,7 @@ The AI dynamically generates the playbook with typed steps:
 | `review` | Spawn review-agent for read-only code review |
 | `fix` | Apply fixes based on review feedback |
 | `verify` | Spawn eval-agent for independent validation |
+| `human-review` | Pause loop for human approval (optional, not inserted by default) |
 
 **Example: User requests "strict review, 2 rounds"**
 
@@ -104,7 +141,15 @@ For simple tasks (e.g., config changes), the AI auto-detects simplicity and gene
 
 ### Step 2: Start Development Loop `/harness-dev`
 
-Agent starts working autonomously, looping until the task is complete.
+Agent works autonomously, driven by the stop-hook loop mechanism. **Recommended: use `/loop` for continuous cycling:**
+
+```bash
+/loop /harness-dev
+```
+
+> **Loop mechanism**: Each iteration, the agent executes ONE playbook step → spawns eval-agent for validation → updates state → turn ends → stop-hook blocks exit → sends continuation prompt → next step executes. When all steps are complete and eval-agent confirms pass, the agent outputs `<promise>LOOP_DONE</promise>` and the loop exits.
+
+You can also run without `/loop` (relies on stop-hook to drive the loop):
 
 ```bash
 /harness-dev
@@ -115,8 +160,8 @@ Agent starts working autonomously, looping until the task is complete.
 | Parameter | Required | Description | Example |
 |---|---|---|---|
 | `--mode single\|dual` | No | Execution mode, default `single` | `--mode dual` |
-| `--worktree` | No | Enable git worktree isolation in dual mode (default: work in-place) | `--worktree` |
 | `--max-iterations N` | No | Max loop iterations, 0 = infinite (default) | `--max-iterations 10` |
+| `--resume` | No | Resume from human-review pause point | `--resume` |
 
 > Note: `--verify` is specified only in `/harness-start`. `/harness-dev` reads it from the state file.
 
@@ -158,7 +203,78 @@ Modify an existing task's configuration at any time:
 /harness-start "Refactor auth module" --verify "All existing tests pass and new module has complete unit test coverage"
 ```
 
-Without `--verify`, the eval-agent still performs structural validation based on `eval-criteria.md` (checking file existence, content plausibility), but lacks targeted semantic verification.
+Without `--verify`, the eval-agent still performs structural validation based on `.claude/harness/eval-criteria.md` (checking file existence, content plausibility), but lacks targeted semantic verification.
+
+## Task Prompt Writing Guide
+
+The scope of `--verify` determines the depth of eval-agent validation. **Verify only checks dimensions you explicitly list** — it won't automatically cover implicit expectations in the task description.
+
+### Anti-Pattern: Incomplete Verify Coverage
+
+```bash
+# Task has 4 dimensions (review, alignment, testing, performance),
+# but verify only covers testing
+/harness-start "Review Rust implementation, check CLI alignment, add E2E tests, optimize performance" \
+  --verify "Unit tests pass, E2E tests pass"
+# Result: eval-agent only runs tests, "review" becomes a clippy cleanup, passes in one round
+```
+
+### Recommended Approaches
+
+**Scheme A: Split Tasks with Single-Dimension Verification (Recommended)**
+
+```bash
+# Task 1: Pure review (deliverable is a report file)
+/harness-start "Deep code review of Rust implementation (6 crates).
+Deliverable: Review report covering architecture, cross-crate dependencies,
+error handling consistency, public API Rust idioms, concurrency safety.
+Each issue tagged critical/major/minor." \
+  --verify "Review report file exists, each crate has >=3 specific findings,
+all critical findings have fix suggestions"
+```
+
+After Task 1 completes (`/harness-dev` loop exits), run:
+
+```bash
+# Task 2: CLI alignment
+/harness-start "Check Rust CLI vs Python CLI alignment, fix all differences" \
+  --verify "Alignment report exists and all E2E CLI tests pass"
+```
+
+After Task 2 completes, run:
+
+```bash
+# Task 3: Performance optimization
+/harness-start "Check and optimize Rust performance bottlenecks" \
+  --verify "All benchmarks within thresholds, no performance regression"
+```
+
+> **Important:** Split tasks must be executed **sequentially and independently** — each task runs its full `/harness-start` → `/harness-dev` → `LOOP_DONE` cycle before the next one starts. Do not run multiple `/harness-start` commands in sequence expecting them to queue — the later one will overwrite the earlier one.
+
+**Scheme B: Single Task with Multi-Dimensional Verify**
+
+```bash
+/harness-start "Complete these 4 items:
+1. Deep review of Rust 6 crates (>=3 findings per crate, tagged by severity);
+2. Produce CLI alignment report, fix differences;
+3. Add E2E tests covering all subcommands;
+4. All benchmarks within thresholds." \
+  --mode dual \
+  --verify "
+  1. Review report exists with >=3 specific findings per crate (not clippy-level);
+  2. CLI alignment report exists and all differences fixed;
+  3. cargo test all pass (including E2E);
+  4. All benchmarks within thresholds"
+```
+
+### Writing Principles
+
+| Principle | Description |
+|---|---|
+| **Deliverables are files, not behaviors** | eval-agent can verify report file contents, but cannot verify "was the review thorough" |
+| **Verify covers all dimensions** | Task has N objectives, verify should have N checks |
+| **Quantify acceptance criteria** | ">=3 findings per crate" is verifiable; "thorough review" is not |
+| **Split tasks over mega-tasks** | Single-objective tasks are easier to write precise verify for |
 
 ## `--skills` Skill Injection
 
@@ -196,17 +312,13 @@ Planning and coding are separated. The main agent writes a tech spec, spawns `ha
 /harness-dev --mode dual
 ```
 
-### Dual Mode + Worktree Isolation
+### Dual Mode (Context Isolation)
 
 ```
-Main Agent (plan only) → dev-agent (codes in isolated worktree) → eval-agent (validates) → pass/fail
+Main Agent (plan only) → dev-agent (codes in-place) → eval-agent (validates) → pass/fail
 ```
 
-Adds `--worktree` flag to dual mode so dev-agent works in an isolated git branch, with changes merged back on success. Best for multi-module development, architecture refactors that need **strict git isolation**.
-
-```bash
-/harness-dev --mode dual --worktree
-```
+Planning and coding are separated. The main agent writes a tech spec, spawns `harness-dev-agent` to implement in the current directory. The main benefit is **protecting the main agent's context** — coding details stay in the subagent. Best for multi-file refactors, architecture adjustments that need **context protection**.
 
 ## Workflow
 
@@ -214,7 +326,7 @@ Adds `--worktree` flag to dual mode so dev-agent works in an isolated git branch
 flowchart TD
     A["/harness-start<br/>description + --from-plan + --verify + --skills"] --> B["Quality preference questions<br/>review rounds / TDD / auto-fix"]
     B --> C["Dynamic playbook generation<br/>implement / review / fix / verify steps"]
-    C --> D["Generate contract files<br/>mission.md / playbook.md<br/>eval-criteria.md / progress.md"]
+    C --> D["Generate contract files<br/>.claude/harness/mission.md / playbook.md<br/>eval-criteria.md / progress.md"]
     D --> E["/harness-dev<br/>start dev loop"]
     E --> F{"Circuit breaker<br/>tripped?"}
     F -- yes --> STOP["Stop — manual intervention"]
@@ -250,8 +362,8 @@ flowchart TD
 /harness-start "task description" --verify "instruction"
   → AI asks quality preferences (review rounds, TDD, auto-fix)
   → Dynamically generate playbook with typed steps
-  → Create mission.md + playbook.md + eval-criteria.md
-  → Initialize .claude/harness-state.local.md
+  → Create .claude/harness/mission.md + playbook.md + eval-criteria.md
+  → Initialize .claude/harness-state.json
 
 /harness-dev
   → Stop Hook drives each loop iteration
@@ -264,15 +376,62 @@ flowchart TD
   → All done → <promise>LOOP_DONE</promise> → loop exits
 ```
 
+## Safety Mechanisms
+
+| Mechanism | Description |
+|---|---|
+| Circuit breaker | Auto-stops after 3 consecutive validation failures, preventing infinite token-burning loops |
+| PreToolUse Hook | Protects `.claude/harness-state.json` from direct agent modification |
+| Oracle isolation | eval-agent cannot see the main agent's reasoning — only workspace artifacts |
+| Task modification gate | Contract files in `.claude/harness/` are only editable through `/harness-edit` |
+
+## Agent System
+
+OpenHarness uses a **dual-layer agent architecture** — the meta-process layer orchestrates the loop, while the domain layer provides specialized expertise:
+
+```
+agents/
+  meta/                 Meta-Process Layer — harness-coupled orchestration agents
+    harness-dev-agent     Code executor: implements from tech spec
+    harness-eval-agent    Oracle-isolated validator: independent verification, no self-certification
+    harness-review-agent  Read-only code reviewer: cumulative scope review + compliance checking
+  domain/               Domain Layer — standalone expertise agents, usable inside or outside harness
+    security-engineer     Threat modeling, vulnerability assessment, secure code review
+    code-reviewer         Deep code review (correctness, maintainability)
+    database-optimizer    Schema design, query tuning, migration strategies
+    api-tester            API functional/security/performance testing
+    evidence-collector    Evidence-based QA, reality checking
+    devops-automator      CI/CD, IaC, deployment, monitoring
+```
+
+### Domain Agent Auto-Routing
+
+When `harness-dev` executes `implement` or `fix` steps, it **automatically selects** the best domain agent:
+
+1. **Manual override**: playbook step's `specialist:` field takes precedence
+2. **Keyword auto-discovery**: scans `agents/domain/*.md` `route_keywords` against step description
+3. **Fallback**: defaults to `harness-dev-agent` when no domain agent matches
+
+Example: step "optimize query performance" → auto-matches `database-optimizer` (keywords: database, query, SQL); step "add auth middleware" → auto-matches `security-engineer` (keywords: security, auth, encryption).
+
+### Adding New Agents
+
+1. Create `<name>.md` in `agents/domain/` with YAML frontmatter (`name`, `description`, `category: domain`, `model`, `tools`, `route_keywords`) + Markdown prompt body
+2. Register in `agents/AGENTS.md` index
+3. `route_keywords` are auto-discovered — no routing logic changes needed
+
+See `agents/TODO.md` for the agent backlog.
+
 ## Architecture
 
 ```
 openharness-cc/
-  skills/          5 behavioral skills (core, init, execute, eval, dream)
-  commands/        4 slash commands (start, dev, status, edit)
-  agents/          3 autonomous agents (dev-agent, eval-agent, review-agent)
+  skills/          7 behavioral skills (core, start, dev, edit, status, eval, dream)
+  agents/
+    meta/          3 meta-process agents (dev-agent, eval-agent, review-agent)
+    domain/        6 domain agents (security, code-reviewer, database, api-tester, evidence, devops)
   hooks/           3 event hooks (SessionStart, PreToolUse, Stop)
-  scripts/         4 utility scripts (state-manager, eval-check, setup-loop, cleanup)
+  scripts/         4 utility scripts (state-manager, stop-hook, setup-loop, cleanup)
   templates/       4 scaffold templates (mission, playbook, eval-criteria, progress)
 ```
 
@@ -281,14 +440,60 @@ openharness-cc/
 | OpenHarness (OpenClaw/Codex) | This Plugin |
 |---|---|
 | `cron` + `harness_setup_cron.py` | `/loop` built-in command |
-| `harness_coordinator.py` | Claude Code agent spawning + worktrees |
+| `harness_coordinator.py` | Claude Code agent spawning |
 | `harness_eval.py` | `harness-eval-agent` (oracle isolation) |
 | `harness_boot.py` circuit breaker | Stop hook + state file |
 | `harness_dream.py` | `harness-dream` skill + `/loop 24h` |
 | `harness_linter.py` | PreToolUse hook |
-| `heartbeat.md` | `.claude/harness-state.local.md` |
+| `heartbeat.md` | `.claude/harness-state.json` |
+
+## Best Practice Commands
+
+### Common Scenarios
+
+```bash
+# Quick bugfix — single mode + TDD
+/harness-start "Fix user login timeout" --verify "All tests pass" --skills "tdd" --quick
+/loop /harness-dev
+
+# Multi-file refactor — dual mode protects context
+/harness-start --from-plan docs/refactor-plan.md --mode dual --verify "All existing tests pass, no regressions"
+/loop /harness-dev --mode dual
+
+# Strict review — multiple review-fix cycles (selected during interactive setup)
+/harness-start "Implement payment integration module" --verify "All tests pass, payment flow correct" --skills "tdd,rest-api-design"
+
+# Specify domain specialist (add specialist: security-engineer to playbook step)
+/harness-start "Add JWT auth middleware to all API endpoints" \
+  --verify "All endpoints return 401 for unauthenticated, 200 for valid tokens"
+
+# Check progress
+/harness-status
+
+# Update verification criteria
+/harness-edit --verify "All API endpoints return correct HTTP status codes with response time < 200ms"
+```
+
+### Execution Mode Selection
+
+| Scenario | Recommended Mode | Why |
+|---|---|---|
+| Bugfix, single-file change | `single` | Sufficient context, no extra agent needed |
+| Multi-file refactor, architecture change | `dual` | Protects main agent context from explosion |
+| Complex feature development | `dual` | Plan/code separation, sub-agent focuses on implementation |
+| Rapid prototype | `single --quick` | Skip wizard, start immediately |
+
+### Verify Writing Tips
+
+- **Deliverables are files** — eval-agent verifies file contents, not "was it thorough"
+- **1:1 mapping** — N objectives in the task = N checks in verify
+- **Quantify criteria** — ">=3 findings per crate" beats "thorough review"
+- **Split tasks first** — single-objective tasks are easier to verify precisely
 
 ## License
 
-Based on [OpenHarness](https://github.com/thu-nmrc/OpenHarness) by thu-nmrc (BSL 1.1).
-This Claude Code adaptation is provided as-is.
+This project contains code from different sources, each under its respective license:
+
+**Original Work**: Template structures (`templates/mission.md`, `templates/playbook.md`, `templates/progress.md`) derived from [OpenHarness](https://github.com/thu-nmrc/OpenHarness) by thu-nmrc, licensed under BSL 1.1. See the [NOTICE](NOTICE) file for details.
+
+**New Work**: All code and documentation beyond the above templates (including scripts, agent definitions, SKILL protocols, hook mechanisms, etc.) are original contributions of this project, licensed under [Apache License 2.0](LICENSE).

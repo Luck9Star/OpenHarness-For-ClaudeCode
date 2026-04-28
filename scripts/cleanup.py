@@ -9,9 +9,10 @@ Usage:
 """
 
 import sys
-import os
 import gzip
 import shutil
+import json
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -21,10 +22,11 @@ PROGRESS_KEEP_RUNS = 50
 MAX_STATE_SIZE = 2048                  # 2KB
 
 # State file location
-STATE_FILE = ".claude/harness-state.local.md"
-LOG_FILE = "logs/execution_stream.log"
-PROGRESS_FILE = "progress.md"
-DREAM_JOURNAL = "logs/dream_journal.md"
+STATE_FILE = ".claude/harness-state.json"
+LOG_FILE = ".claude/harness/logs/execution_stream.log"
+PROGRESS_FILE = ".claude/harness/progress.md"
+DREAM_JOURNAL = ".claude/harness/logs/dream_journal.md"
+ARCHIVE_DIR = ".claude/harness/archive"
 
 # Temp file patterns to clean
 TEMP_PATTERNS = ["*.tmp", "*.bak", "*.swp", "*~", ".DS_Store"]
@@ -77,7 +79,6 @@ def cleanup_progress(base_path):
     text = progress_path.read_text()
 
     # Find all run entries (### Run #NNN)
-    import re
     runs = list(re.finditer(r'(### Run #(\d+).*?)(?=### Run #|\Z)', text, re.DOTALL))
 
     if not runs:
@@ -93,7 +94,6 @@ def cleanup_progress(base_path):
     runs_to_keep = runs[-PROGRESS_KEEP_RUNS:]
     runs_to_prune = runs[:-PROGRESS_KEEP_RUNS]
     first_kept = runs_to_keep[0]
-    last_kept = runs_to_keep[-1]
 
     # Build a summary of pruned entries
     pruned_runs = []
@@ -139,45 +139,29 @@ def cleanup_state(base_path):
         report("state", f"State file is {size} bytes — under {MAX_STATE_SIZE} byte limit.")
         return
 
-    text = state_path.read_text()
+    try:
+        with open(state_path) as f:
+            state = json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        report("state", f"Cannot parse state file: {e}. Skipping.")
+        return
 
-    # Try trimming the Knowledge Index table
-    # Find the Knowledge Index section
-    import re
-    ki_match = re.search(
-        r'(## Knowledge Index\n.*?)(?=##|\Z)',
-        text,
-        re.DOTALL
-    )
+    # Try trimming the knowledge_index list if present
+    knowledge_index = state.get("knowledge_index", [])
+    if knowledge_index and len(knowledge_index) > 3:
+        original_count = len(knowledge_index)
+        state["knowledge_index"] = knowledge_index[-3:]  # Keep last 3 entries
 
-    if ki_match:
-        ki_section = ki_match.group(1)
-        # Find all table rows (lines starting with |)
-        rows = [line for line in ki_section.split('\n') if line.strip().startswith('|')]
+        with open(state_path, "w") as f:
+            json.dump(state, f, indent=2)
+            f.write("\n")
 
-        # Keep header rows (first 2) and trim data rows
-        if len(rows) > 4:
-            header_rows = rows[:2]  # | Topic | Path | Updated | and |---|---|---|
-            data_rows = rows[2:]
-            kept_rows = data_rows[-3:]  # Keep last 3 knowledge entries
-
-            new_ki = (
-                "## Knowledge Index\n\n"
-                + '\n'.join(header_rows) + '\n'
-                + '\n'.join(kept_rows) + '\n'
-                + "\n> Full index available in knowledge/index.md\n"
-            )
-            text = text[:ki_match.start()] + new_ki + text[ki_match.end():]
-            state_path.write_text(text)
-
-            new_size = state_path.stat().st_size
-            report("state", f"Trimmed knowledge index: {size} -> {new_size} bytes")
-            if new_size > MAX_STATE_SIZE:
-                report("state", f"WARNING: State file still over {MAX_STATE_SIZE} bytes after trimming. Manual intervention needed.")
-        else:
-            report("state", f"Knowledge index has few entries ({len(rows) - 2} data rows). Cannot trim further.")
+        new_size = state_path.stat().st_size
+        report("state", f"Trimmed knowledge index: {original_count} -> 3 entries ({size} -> {new_size} bytes)")
+        if new_size > MAX_STATE_SIZE:
+            report("state", f"WARNING: State file still over {MAX_STATE_SIZE} bytes after trimming. Manual intervention needed.")
     else:
-        report("state", "No Knowledge Index section found to trim.")
+        report("state", "Knowledge index has few entries or is absent. Cannot trim further.")
 
 
 def cleanup_temp(base_path):
@@ -201,16 +185,52 @@ def cleanup_temp(base_path):
         report("temp", f"Cleaned {cleaned} temporary file(s).")
 
 
+def cleanup_archives(base_path):
+    """Keep only the last 5 archive directories, deleting older ones."""
+    archive_path = base_path / ARCHIVE_DIR
+    if not archive_path.exists():
+        report("archives", "No archive directory found — nothing to do.")
+        return
+
+    archives = sorted(
+        [d for d in archive_path.iterdir() if d.is_dir()],
+        key=lambda d: d.stat().st_mtime,
+    )
+
+    if len(archives) <= 5:
+        report("archives", f"{len(archives)} archive(s) found — under limit of 5, no pruning needed.")
+        return
+
+    to_delete = archives[:-5]
+    for d in to_delete:
+        shutil.rmtree(d)
+        report("archives", f"Deleted old archive: {d.name}")
+
+    report("archives", f"Pruned {len(to_delete)} old archive(s), kept {len(archives) - len(to_delete)}.")
+
+
 def main():
+    args = sys.argv[1:]
+
+    if "--help" in args or "-h" in args:
+        print(__doc__)
+        sys.exit(0)
+
     base_path = Path.cwd()
 
     # Parse arguments
-    args = sys.argv[1:]
     do_all = "--all" in args or not args
     do_logs = do_all or "--logs" in args
     do_progress = do_all or "--progress" in args
     do_state = do_all or "--state" in args
     do_temp = do_all or "--temp" in args
+    do_archives = do_all or "--archives" in args
+
+    # Warn about unrecognized flags
+    known = {"--all", "--logs", "--progress", "--state", "--temp", "--archives", "--help", "-h"}
+    unrecognized = [a for a in args if a.startswith("-") and a not in known]
+    if unrecognized:
+        print(f"Warning: Unrecognized arguments: {' '.join(unrecognized)}", file=sys.stderr)
 
     print(f"=== OpenHarness Cleanup Report ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')}) ===")
     print()
@@ -233,6 +253,11 @@ def main():
     if do_temp:
         print("[temp] Checking for temporary files...")
         cleanup_temp(base_path)
+        print()
+
+    if do_archives:
+        print("[archives] Checking old archives...")
+        cleanup_archives(base_path)
         print()
 
     print("=== Cleanup Complete ===")

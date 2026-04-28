@@ -1,6 +1,6 @@
 ---
 name: harness-dream
-description: Offline memory consolidation for OpenHarness. Analyzes execution patterns, consolidates knowledge files, prunes stale state. Run during idle periods via a separate /loop.
+description: "Offline memory consolidation for OpenHarness. Analyzes execution patterns, consolidates knowledge files, prunes stale state. Run during idle periods via a separate /loop."
 ---
 
 # Harness Dream | Memory Consolidation
@@ -12,12 +12,12 @@ This skill performs offline maintenance on the OpenHarness workspace. It should 
 Before proceeding, verify that the workspace state is NOT `running`:
 
 ```bash
-python3 scripts/state-manager.py read
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" read
 ```
 
-If `status` is `running`, stop immediately with the message:
+If `status` is `running`, output the message and stop:
 
-> Cannot dream while workspace is running. Wait for the current iteration to complete.
+> [Harness Dream] Skipped — workspace is currently running. Dream only executes during idle periods. Loop-driven tasks will dream automatically between iterations.
 
 Allowed states for dreaming: `idle`, `failed`, `completed`, `blocked`, `mission_complete`.
 
@@ -29,7 +29,7 @@ Scan the execution log for patterns in the last 24 hours:
 
 ```bash
 # Read recent log entries (last 24h worth)
-grep -E "^\[" logs/execution_stream.log | tail -200
+grep -E "^\[" .claude/harness/logs/execution_stream.log | tail -200
 ```
 
 Look for:
@@ -40,13 +40,13 @@ Look for:
 
 ### Phase 2: Knowledge Consolidation
 
-Scan the `knowledge/` directory (if it exists):
+Scan the `.claude/harness/knowledge/` directory (if it exists):
 
-1. Read each `.md` file in `knowledge/`
+1. Read each `.md` file in `.claude/harness/knowledge/`
 2. Identify duplicate or overlapping content
 3. Merge related files into consolidated entries
-4. Update the Knowledge Index in `.claude/harness-state.local.md` to reflect the new structure
-5. Remove empty or placeholder knowledge files
+4. Update the Knowledge Index in `.claude/harness-state.json` to reflect the new structure
+5. Remove empty or placeholder `.claude/harness/knowledge/` files
 
 When merging:
 - Keep the most detailed version of each piece of information
@@ -57,26 +57,26 @@ When merging:
 
 Trim stale entries from the state file to keep it under 2KB:
 
-1. Read `.claude/harness-state.local.md`
+1. Read `.claude/harness-state.json`
 2. Check the Knowledge Index section
-3. Remove entries for knowledge files that no longer exist
+3. Remove entries for `.claude/harness/knowledge/` files that no longer exist
 4. Remove resolved or obsolete pointers
-5. Ensure the frontmatter stays compact
+5. Ensure the JSON state file stays compact
 
 After pruning, verify the file size:
 
 ```bash
-wc -c .claude/harness-state.local.md
+wc -c .claude/harness-state.json
 ```
 
-If still over 2KB, trim the Knowledge Index table to only the most recent 5 entries and add a note: `> Full index available in knowledge/index.md`
+If still over 2KB, trim the Knowledge Index table to only the most recent 5 entries and add a note: `> Full index available in .claude/harness/knowledge/index.md`
 
 ### Phase 4: Insight Extraction
 
 Based on the patterns found in Phase 1, extract actionable insights:
 
 1. For each recurring pattern, write a one-line "Distilled Insight"
-2. Append these insights to `playbook.md` under a new section:
+2. Append these insights to `.claude/harness/playbook.md` under a new section:
 
 ```markdown
 ## Distilled Insights
@@ -87,11 +87,11 @@ Based on the patterns found in Phase 1, extract actionable insights:
 - [Insight 2]: [Brief description]
 ```
 
-If `playbook.md` already has a "Distilled Insights" section, merge new insights with existing ones (avoid duplicates).
+If `.claude/harness/playbook.md` already has a "Distilled Insights" section, merge new insights with existing ones (avoid duplicates).
 
 ### Phase 5: Dream Journal
 
-Write a dream journal entry to `logs/dream_journal.md`:
+Write a dream journal entry to `.claude/harness/logs/dream_journal.md`:
 
 ```markdown
 ## Dream Entry — [timestamp]
@@ -114,9 +114,9 @@ Write a dream journal entry to `logs/dream_journal.md`:
 
 ### Phase 6: Final Verification
 
-1. Verify `.claude/harness-state.local.md` is under 2KB
-2. Verify `logs/dream_journal.md` was updated
-3. Verify no knowledge files were deleted without consolidation
+1. Verify `.claude/harness-state.json` is under 2KB
+2. Verify `.claude/harness/logs/dream_journal.md` was updated
+3. Verify no `.claude/harness/knowledge/` files were deleted without consolidation
 4. Report a summary of what was done
 
 ## Important Notes

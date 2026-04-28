@@ -15,7 +15,7 @@
 - **动态工作流** — 根据任务需求自动生成开发/审查/修复循环
 - **可切换执行模式** — single（规划+编码）或 dual（规划 → 派生编码 agent）
 - **Skill 注入** — 指定 dev-agent 加载的技能，按需获取领域知识
-- **`/loop` 集成** — 无需外部 cron，使用 Claude Code 内置循环
+- **`/loop` 集成** — stop-hook 驱动 step-by-step 循环，一个 iteration 执行一个 step
 
 ## 安装
 
@@ -48,11 +48,11 @@ git clone https://github.com/Luck9Star/OpenHarness-For-ClaudeCode ~/.claude/plug
 
 **这条命令会做什么：**
 
-1. 在当前项目目录下创建 `.claude/harness-state.local.md`（状态文件）
-2. 生成 `mission.md` — 任务合约，定义"做什么"和"什么算完成"
-3. 生成 `playbook.md` — 执行步骤，Agent 按步骤执行
-4. 生成 `eval-criteria.md` — 验证标准，每步完成后外部验证
-5. 生成 `progress.md` — 进度日志，记录每次执行结果
+1. 在当前项目目录下创建 `.claude/harness-state.json`（状态文件）
+2. 生成 `.claude/harness/mission.md` — 任务合约，定义"做什么"和"什么算完成"
+3. 生成 `.claude/harness/playbook.md` — 执行步骤，Agent 按步骤执行
+4. 生成 `.claude/harness/eval-criteria.md` — 验证标准，每步完成后外部验证
+5. 生成 `.claude/harness/progress.md` — 进度日志，记录每次执行结果
 
 **参数说明：**
 
@@ -63,8 +63,44 @@ git clone https://github.com/Luck9Star/OpenHarness-For-ClaudeCode ~/.claude/plug
 | `--mode single\|dual` | 否 | 执行模式，默认 `single`（见下方说明） | `--mode dual` |
 | `--verify "指令"` | 否 | 自然语言验证指令，eval-agent 用来判断任务是否完成 | `--verify "确保所有测试通过"` |
 | `--skills "s1,s2"` | 否 | dev-agent 按需加载的技能名称，逗号分隔 | `--skills "tdd,react-patterns"` |
+| `--quick` | 否 | 跳过向导，直接使用提供的参数 | `--quick` |
 
 > *任务描述和 `--from-plan` 至少提供一个。两者都提供时，方案提供结构（步骤、架构），描述补充上下文和约束。
+
+### 交互式向导
+
+当缺少关键参数时（没有 `--verify`、没有描述等），`/harness-start` 进入**向导模式** — 通过多轮交互帮助你精确定义任务：
+
+| 向导步骤 | 做什么 | 产出 |
+|---|---|---|
+| **1A: 任务扩展** | 分析代码库（技术栈、项目结构、测试模式），扩展任务描述，补充具体范围和受影响文件 | 精化的任务描述 |
+| **1B: 交付物列举** | 根据扩展后的任务，列举具体的文件级交付物 | 可验证的输出清单 |
+| **1C: 推导 Verify** | 从交付物生成 `--verify` — 每条检查都是量化的、机器可验证的，一个交付物对应一条检查 | 精确的 verify 指令 |
+| **1D: 技能推荐** | 根据检测到的技术栈和任务类型推荐技能 | 验证过的技能列表 |
+
+每一步都会展示结果供你确认后再继续。这确保了 verify 覆盖范围与实际交付物一一对应 — 在初始化阶段就解决 verify 覆盖不全的问题。
+
+**快速模式**完全跳过向导，激活条件：
+1. 提供了任务描述（或 `--from-plan`）
+2. 提供了 `--verify`
+3. 设置了 `--quick` 标志，或同时指定了 `--mode` 和 `--skills`
+
+```bash
+# 向导模式 — 缺少 verify 触发交互流程
+/harness-start "为当前项目添加用户注册和登录功能"
+
+# 快速模式 — 参数齐全，无向导
+/harness-start "为当前项目添加用户注册和登录功能" \
+  --verify "所有测试通过，注册 API 返回 201" \
+  --skills "tdd" --mode single
+```
+
+**任务覆盖机制：** 每个项目目录同一时间只能有一个活跃 harness 任务。再次执行 `/harness-start` 时：
+
+- 如果已有活跃任务（status 为 `running` 或 `idle`），会提示确认，需要用户同意才会覆盖
+- 已完成（`mission_complete`）或已失败（`failed`）的任务可直接覆盖，无需确认
+- 覆盖前，旧任务的 workspace 文件会自动归档到 `.claude/harness/archive/{任务名}-{时间戳}/`
+- 归档保留最近 5 份，更早的由 `cleanup.py` 自动清理
 
 ### 动态工作流生成
 
@@ -82,6 +118,7 @@ AI 根据回答**动态生成 playbook 步骤**，每个步骤带有类型标记
 | `review` | 派生 review-agent 进行只读代码审查 |
 | `fix` | 根据审查意见修复问题 |
 | `verify` | 派生 eval-agent 进行独立验证 |
+| `human-review` | 暂停循环等待人工确认（可选，默认不插入） |
 
 **示例：用户要求"严格审查，2 轮"**
 
@@ -99,7 +136,15 @@ Step 1 (implement) → Step 2 (implement) → Step 3 (verify)
 
 ### 第二步：启动开发循环 `/harness-dev`
 
-Agent 开始自主工作，循环执行直到任务完成。
+Agent 开始自主工作，通过 stop-hook 驱动循环执行。**推荐使用 `/loop` 确保持续循环：**
+
+```bash
+/loop /harness-dev
+```
+
+> **循环机制**：每次 iteration，agent 执行一个 playbook step → spawn eval-agent 验证 → 更新状态 → turn 结束 → stop-hook 拦截退出 → 推送 continuation prompt → 执行下一个 step。直到所有 step 完成且 eval-agent 确认通过，agent 输出 `<promise>LOOP_DONE</promise>`，循环退出。
+
+也可以直接运行（不使用 `/loop`，依赖 stop-hook 驱动循环）：
 
 ```bash
 /harness-dev
@@ -110,8 +155,8 @@ Agent 开始自主工作，循环执行直到任务完成。
 | 参数 | 必填 | 说明 | 示例 |
 |---|---|---|---|
 | `--mode single\|dual` | 否 | 执行模式，默认 `single` | `--mode dual` |
-| `--worktree` | 否 | dual 模式下启用 git worktree 隔离（默认在当前目录工作） | `--worktree` |
 | `--max-iterations N` | 否 | 最大循环次数，0 表示无限（默认） | `--max-iterations 10` |
+| `--resume` | 否 | 从 human-review 暂停点恢复执行 | `--resume` |
 
 > 注意：`--verify` 只在 `/harness-start` 中指定，`/harness-dev` 从状态文件读取，无需重复。
 
@@ -168,7 +213,76 @@ Agent 开始自主工作，循环执行直到任务完成。
 /harness-start "Add payment integration" --verify "All payment flows complete successfully with no test failures"
 ```
 
-如果不指定 `--verify`，eval-agent 仍会根据 `eval-criteria.md` 做结构性验证（检查文件是否存在、内容是否合理等），但缺少针对性的语义验证。
+如果不指定 `--verify`，eval-agent 仍会根据 `.claude/harness/eval-criteria.md` 做结构性验证（检查文件是否存在、内容是否合理等），但缺少针对性的语义验证。
+
+## 任务编写指南
+
+`--verify` 的覆盖范围决定了 eval-agent 的验证深度。**verify 只检查你明确列出的维度**——不会自动覆盖任务描述中的隐含期望。
+
+### 反模式：verify 覆盖不全
+
+```bash
+# 任务有 4 个维度（评审、对齐、测试、性能），但 verify 只覆盖了测试
+/harness-start "评审 Rust 实现，检查 CLI 对齐，补齐 E2E 测试，优化性能" \
+  --verify "单元测试成功，E2E 测试通过"
+# 结果：eval-agent 只跑测试，"评审"变成 clippy 清理，一轮就过
+```
+
+### 推荐写法
+
+**方案 A：拆任务，每个任务目标单一（推荐）**
+
+```bash
+# 任务 1：纯评审（交付物是报告文件）
+/harness-start "对 Rust 实现（6 crate）进行深度代码评审。
+交付物：评审报告，覆盖架构设计、跨 crate 依赖、错误处理策略、
+public API 惯用法、并发安全性。每个问题标注 critical/major/minor。" \
+  --verify "评审报告文件存在，每个 crate 有 >=3 条具体发现，
+所有 critical 发现都有修复建议"
+```
+
+等任务 1 完成后（`/harness-dev` 循环退出），再执行：
+
+```bash
+# 任务 2：CLI 对齐
+/harness-start "检查 Rust CLI 与 Python CLI 的对齐，修复所有差异" \
+  --verify "对齐报告存在且所有 E2E CLI 测试通过"
+```
+
+等任务 2 完成后，再执行：
+
+```bash
+# 任务 3：性能优化
+/harness-start "检查并优化 Rust 性能瓶颈" \
+  --verify "benchmark 全部在阈值内，无性能回归"
+```
+
+> **重要：** 拆分的任务必须**依次独立执行**——每个任务走完完整的 `/harness-start` → `/harness-dev` → `LOOP_DONE` 流程后，再开始下一个。不能在同一会话中连续执行多次 `/harness-start` 期望它们排队执行，因为后一个会覆盖前一个。
+
+**方案 B：单任务但 verify 覆盖全维度**
+
+```bash
+/harness-start "完成以下 4 项工作：
+1. 深度评审 Rust 6 crate（每 crate >=3 条发现，标注严重等级）；
+2. 产出 CLI 对齐报告，修复差异；
+3. 补齐 E2E 测试，覆盖所有子命令；
+4. benchmark 全部在阈值内。" \
+  --mode dual \
+  --verify "
+  1. 评审报告存在且每 crate 有 >=3 条具体发现（非 clippy 级别）；
+  2. CLI 对齐报告存在且所有差异已修复；
+  3. cargo test 全部通过（含 E2E）；
+  4. benchmark 全部在阈值内"
+```
+
+### 编写原则
+
+| 原则 | 说明 |
+|---|---|
+| **交付物是文件，不是行为** | eval-agent 可以读文件验证报告内容，但无法验证"评审是否深入" |
+| **verify 覆盖所有维度** | 任务有 N 个目标，verify 就要有 N 条检查 |
+| **量化验收标准** | "每 crate >=3 条发现"比"充分评审"可验证 |
+| **拆任务优于大任务** | 单一目标的任务更容易写出精确的 verify |
 
 ## `--skills` 技能注入
 
@@ -206,17 +320,13 @@ Agent 自己规划步骤，自己写代码，但**验证环节由独立的 eval-
 /harness-dev --mode dual
 ```
 
-### Dual 模式 + Worktree 隔离
+### Dual 模式（上下文隔离）
 
 ```
-主 Agent（只规划）→ dev-agent（隔离 worktree 中编码）→ eval-agent（独立验证）→ 通过/失败
+主 Agent（只规划）→ dev-agent（当前目录编码）→ eval-agent（独立验证）→ 通过/失败
 ```
 
-在 dual 模式基础上，加 `--worktree` 标志让 dev-agent 在独立 git worktree 分支中工作，代码变更在独立分支上完成后合并回主分支。适合多模块开发、架构重构等需要**严格 git 隔离**的场景。
-
-```bash
-/harness-dev --mode dual --worktree
-```
+规划和编码分离，主 Agent 写 tech spec，派生 `harness-dev-agent` 在当前目录实现代码。主要好处是**保护主 Agent 上下文**——编码细节留在子 agent 中。适合多文件重构、架构调整等需要**保护主 Agent 上下文**的场景。
 
 ## 工作流
 
@@ -224,7 +334,7 @@ Agent 自己规划步骤，自己写代码，但**验证环节由独立的 eval-
 flowchart TD
     A["/harness-start<br/>描述 + --from-plan + --verify + --skills"] --> B["质量偏好提问<br/>审查轮数 / TDD / 自动修复"]
     B --> C["动态生成 Playbook<br/>implement / review / fix / verify 步骤"]
-    C --> D["生成合约文件<br/>mission.md / playbook.md<br/>eval-criteria.md / progress.md"]
+    C --> D["生成合约文件<br/>.claude/harness/mission.md / playbook.md<br/>eval-criteria.md / progress.md"]
     D --> E["/harness-dev<br/>启动开发循环"]
     E --> F{"断路器<br/>是否触发？"}
     F -- 是 --> STOP["停止，等待人工干预"]
@@ -266,8 +376,8 @@ AI 质量偏好提问:
   "验证失败自动修复？" → "是"
 
 插件动态生成:
-  mission.md      → 定义目标：实现 JWT 认证，所有测试通过
-  playbook.md     → 步骤：
+  .claude/harness/mission.md → 定义目标：实现 JWT 认证，所有测试通过
+  .claude/harness/playbook.md → 步骤：
     Step 1 (verify)    → 编写测试用例
     Step 2 (implement) → 实现 auth.middleware.js
     Step 3 (review)    → review-agent 审查代码质量
@@ -275,8 +385,8 @@ AI 质量偏好提问:
     Step 5 (review)    → 第二轮审查
     Step 6 (fix)       → 根据第二轮意见修复
     Step 7 (verify)    → eval-agent 独立验证
-  eval-criteria.md → 验证：测试通过、中间件文件存在、路由受保护
-  harness-state.local.md → 状态：idle, Step 1
+  .claude/harness/eval-criteria.md → 验证：测试通过、中间件文件存在、路由受保护
+  .claude/harness-state.json → 状态：idle, Step 1
 
 你启动循环:
   /harness-dev
@@ -300,19 +410,57 @@ AI 质量偏好提问:
 | 机制 | 说明 |
 |---|---|
 | 断路器 | 连续 3 次验证失败后自动停止，防止无限循环浪费 token |
-| PreToolUse Hook | 自动阻止违反 `mission.md` 禁止操作的文件写入 |
+| PreToolUse Hook | 保护 `.claude/harness-state.json` 不被 Agent 直接修改 |
 | Oracle 隔离 | eval-agent 无法看到主 Agent 的推理过程，只看工作区产物 |
-| 状态文件保护 | `mission.md` 和状态文件在初始化后变为只读，Agent 不可修改 |
+| 任务修改接口 | `.claude/harness/` 下的合约文件只能通过 `/harness-edit` 修改 |
+
+## Agent 体系
+
+OpenHarness 采用**双层 Agent 架构**——元流程层负责编排循环，领域层提供专业能力：
+
+```
+agents/
+  meta/                 元流程层 — 框架耦合的编排 agent
+    harness-dev-agent     代码执行器：从 tech spec 实现代码
+    harness-eval-agent    Oracle 隔离验证器：独立验证，不可自我认证
+    harness-review-agent  只读代码审查器：累积范围审查 + 合规检查
+  domain/               领域层 — 独立专业 agent，可在 harness 内/外使用
+    security-engineer     威胁建模、漏洞评估、安全代码审查
+    code-reviewer         深度代码审查（正确性、可维护性）
+    database-optimizer    数据库 Schema 设计、查询优化、迁移策略
+    api-tester            API 功能/安全/性能测试
+    evidence-collector    基于证据的 QA，事实核查
+    devops-automator      CI/CD、IaC、部署、监控
+```
+
+### 领域 Agent 自动路由
+
+`harness-dev` 执行 `implement` 和 `fix` 步骤时，会根据步骤描述**自动匹配**领域 agent：
+
+1. **手动覆盖**：playbook 步骤的 `specialist:` 字段指定 agent，直接使用
+2. **关键词自动发现**：扫描 `agents/domain/*.md` 的 `route_keywords`，匹配步骤描述
+3. **降级兜底**：无领域 agent 匹配时，回退到 `harness-dev-agent`
+
+例如：步骤描述含 "优化查询性能" → 自动匹配 `database-optimizer`（关键词：database, query, SQL, 查询优化）；含 "添加认证中间件" → 自动匹配 `security-engineer`（关键词：security, auth, 认证）。
+
+### 添加新 Agent
+
+1. 在 `agents/domain/` 创建 `<name>.md`，包含 YAML frontmatter（`name`, `description`, `category: domain`, `model`, `tools`, `route_keywords`）+ Markdown prompt body
+2. 更新 `agents/AGENTS.md` 注册到索引
+3. `route_keywords` 即被自动发现，无需修改路由逻辑
+
+待接入 agent 清单见 `agents/TODO.md`。
 
 ## 架构
 
 ```
 openharness-cc/
-  skills/          5 个行为技能（core, init, execute, eval, dream）
-  commands/        4 个斜杠命令（start, dev, status, edit）
-  agents/          3 个自主 agent（dev-agent, eval-agent, review-agent）
+  skills/          7 个行为技能（core, start, dev, edit, status, eval, dream）
+  agents/
+    meta/          3 个元流程 agent（dev-agent, eval-agent, review-agent）
+    domain/        6 个领域 agent（security, code-reviewer, database, api-tester, evidence, devops）
   hooks/           3 个事件 hook（SessionStart, PreToolUse, Stop）
-  scripts/         4 个工具脚本（state-manager, eval-check, setup-loop, cleanup）
+  scripts/         4 个工具脚本（state-manager, stop-hook, setup-loop, cleanup）
   templates/       4 个脚手架模板（mission, playbook, eval-criteria, progress）
 ```
 
@@ -321,14 +469,60 @@ openharness-cc/
 | OpenHarness (OpenClaw/Codex) | 本插件 |
 |---|---|
 | `cron` + `harness_setup_cron.py` | `/loop` 内置命令 |
-| `harness_coordinator.py` | Claude Code agent spawning + worktree |
+| `harness_coordinator.py` | Claude Code agent spawning |
 | `harness_eval.py` | `harness-eval-agent`（Oracle 隔离） |
 | `harness_boot.py` 断路器 | Stop hook + 状态文件 |
 | `harness_dream.py` | `harness-dream` skill + `/loop 24h` |
 | `harness_linter.py` | PreToolUse hook |
-| `heartbeat.md` | `.claude/harness-state.local.md` |
+| `heartbeat.md` | `.claude/harness-state.json` |
+
+## 最佳实践命令
+
+### 常见场景
+
+```bash
+# 快速 bugfix — single 模式 + TDD
+/harness-start "修复用户登录超时问题" --verify "所有测试通过" --skills "tdd" --quick
+/loop /harness-dev
+
+# 多文件重构 — dual 模式保护上下文
+/harness-start --from-plan docs/refactor-plan.md --mode dual --verify "所有现有测试通过，无回归"
+/loop /harness-dev --mode dual
+
+# 严格审查 — 3 轮 review-fix 循环（交互时选择）
+/harness-start "实现支付集成模块" --verify "所有测试通过，支付流程正确" --skills "tdd,rest-api-design"
+
+# 指定领域专家（在 playbook 步骤中加 specialist: security-engineer）
+/harness-start "为所有 API 端点添加 JWT 认证中间件" \
+  --verify "所有端点返回 401 未认证，合法 token 返回 200"
+
+# 查看进度
+/harness-status
+
+# 修改验证标准
+/harness-edit --verify "所有 API 端点返回正确 HTTP 状态码且响应时间 < 200ms"
+```
+
+### 执行模式选择
+
+| 场景 | 推荐模式 | 原因 |
+|---|---|---|
+| Bugfix、单文件修改 | `single` | 上下文足够，无需额外 agent |
+| 多文件重构、架构调整 | `dual` | 保护主 agent 上下文不爆炸 |
+| 复杂功能开发 | `dual` | 规划与编码分离，子 agent 聚焦实现 |
+| 快速原型 | `single --quick` | 跳过向导，立即开始 |
+
+### Verify 编写口诀
+
+- **交付物是文件** — eval-agent 能读文件验证，不能验证"是否深入"
+- **一一对应** — 任务有 N 个目标，verify 就要有 N 条检查
+- **量化标准** — "每 crate >=3 条发现" 优于 "充分评审"
+- **拆任务优先** — 单一目标的任务验证更精确
 
 ## 许可证
 
-基于 [OpenHarness](https://github.com/thu-nmrc/OpenHarness) by thu-nmrc (BSL 1.1)。
-本 Claude Code 适配版本按原样提供。
+本项目包含来自不同来源的代码，分别适用以下许可：
+
+**原始工作**：部分模板结构（`templates/mission.md`、`templates/playbook.md`、`templates/progress.md`）源自 [OpenHarness](https://github.com/thu-nmrc/OpenHarness) by thu-nmrc，适用 BSL 1.1 许可证。详见 [NOTICE](NOTICE) 文件。
+
+**新增工作**：除上述模板外的所有代码和文档（包括脚本、agent 定义、SKILL 协议、hook 机制等）为本项目原创贡献，适用 [Apache License 2.0](LICENSE)。

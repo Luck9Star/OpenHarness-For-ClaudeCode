@@ -1,0 +1,38 @@
+OpenHarness for Claude Code
+Copyright (c) 2025-2026 OpenHarness for Claude Code Contributors
+
+================================================================================
+NOTICE — Third-Party and Derived Components
+================================================================================
+
+This project includes materials derived from the OpenHarness project
+(https://github.com/thu-nmrc/OpenHarness) by thu-nmrc contributors.
+
+The following files contain template structures derived from OpenHarness
+and remain subject to the Business Source License 1.1 (BSL 1.1):
+
+  - templates/mission.md     (workspace mission template structure)
+  - templates/playbook.md    (step-by-step execution plan template structure)
+  - templates/progress.md    (progress tracking template structure)
+
+Original OpenHarness License:
+  License:    Business Source License 1.1
+  Licensor:   OpenHarness Contributors
+  Licensed Work: (c) 2025 OpenHarness Contributors
+  Change Date:  Four years from first public availability
+  Change License: Apache License, Version 2.0
+  Full text:  https://github.com/thu-nmrc/OpenHarness/blob/main/LICENSE
+
+================================================================================
+
+All other files in this repository are original contributions and are
+licensed under the Apache License, Version 2.0. See the LICENSE file.
+
+This includes but is not limited to:
+  - scripts/           (state-manager.py, stop-hook.py, cleanup.py, etc.)
+  - agents/            (all meta and domain agent definitions)
+  - skills/            (all SKILL.md protocol files and references)
+  - commands/          (all command definitions)
+  - hooks/             (all hook scripts)
+  - templates/eval-criteria.md
+  - templates/playbook.md Phase/parallel extensions

@@ -9,7 +9,21 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 # Check if harness workspace is active
-STATE_FILE=".claude/harness-state.local.md"
+STATE_FILE=".claude/harness-state.json"
+
+# Sub-agent detection: compare session_id from hook input against state file.
+# If state already has a different session_id claimed, this is a sub-agent — skip injection.
+if [[ -f "$STATE_FILE" ]]; then
+  HOOK_INPUT=$(cat 2>/dev/null || true)
+  if [[ -n "$HOOK_INPUT" ]]; then
+    HOOK_SESSION=$(printf '%s' "$HOOK_INPUT" | jq -r '.session_id // empty' 2>/dev/null || true)
+    STATE_SESSION=$(jq -r '.session_id // empty' "$STATE_FILE" 2>/dev/null || true)
+    if [[ -n "$HOOK_SESSION" && -n "$STATE_SESSION" && "$STATE_SESSION" != "$HOOK_SESSION" ]]; then
+      # Sub-agent: state already claimed by main harness session
+      exit 0
+    fi
+  fi
+fi
 
 if [[ ! -f "$STATE_FILE" ]]; then
   # No active harness workspace — plugin stays dormant
@@ -25,8 +39,8 @@ fi
 
 CORE_CONTENT=$(cat "$CORE_SKILL")
 
-# Read state summary (frontmatter only, first 30 lines to stay under context budget)
-STATE_SUMMARY=$(head -n 30 "$STATE_FILE")
+# Read state summary as formatted JSON (compact for context budget)
+STATE_SUMMARY=$(jq -c '.' "$STATE_FILE" 2>/dev/null || cat "$STATE_FILE")
 
 # Escape for JSON embedding
 escape_for_json() {
@@ -43,7 +57,7 @@ CORE_ESCAPED=$(escape_for_json "$CORE_CONTENT")
 STATE_ESCAPED=$(escape_for_json "$STATE_SUMMARY")
 
 # Build context injection
-CONTEXT="<EXTREMELY_IMPORTANT>\nYou are in an active OpenHarness workspace.\n\n**Below is the full content of the harness-core skill — your behavioral foundation for this session:**\n\n${CORE_ESCAPED}\n\n**Current harness state:**\n\n${STATE_ESCAPED}\n\nRead mission.md, playbook.md, and eval-criteria.md before taking any action.\n</EXTREMELY_IMPORTANT>"
+CONTEXT="<EXTREMELY_IMPORTANT>\nYou are in an active OpenHarness workspace.\n\n**Below is the full content of the harness-core skill — your behavioral foundation for this session:**\n\n${CORE_ESCAPED}\n\n**Current harness state:**\n\n${STATE_ESCAPED}\n\nRead .claude/harness/mission.md, .claude/harness/playbook.md, and .claude/harness/eval-criteria.md before taking any action.\n</EXTREMELY_IMPORTANT>"
 
 # Output context injection — platform-aware
 if [ -n "${CURSOR_PLUGIN_ROOT:-}" ]; then
