@@ -5,6 +5,7 @@ category: domain
 model: sonnet
 tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob"]
 route_keywords: [database, 数据库, schema, query, SQL, migration, index, 索引, PostgreSQL, MySQL, Supabase, performance, 查询优化]
+parallel_safe: true
 ---
 
 # Database Optimizer Agent

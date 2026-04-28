@@ -5,6 +5,7 @@ category: domain
 model: sonnet
 tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob"]
 route_keywords: [security, auth, 认证, 权限, threat, vulnerability, 安全, OWASP, encryption, 加密, SQL injection, XSS, CSRF, secrets, 漏洞]
+parallel_safe: true
 ---
 
 # Security Engineer Agent

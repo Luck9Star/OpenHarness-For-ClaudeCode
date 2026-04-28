@@ -5,6 +5,7 @@ category: domain
 model: sonnet
 tools: ["Read", "Bash", "Grep", "Glob"]
 route_keywords: [QA, test, 测试, evidence, 证据, verify, 验证, quality assurance, 质量保证, screenshot]
+parallel_safe: true
 ---
 
 # Evidence Collector Agent

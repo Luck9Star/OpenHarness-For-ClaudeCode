@@ -4,6 +4,7 @@ description: Read-only code review agent for OpenHarness. Reviews code changes f
 category: meta
 model: sonnet
 tools: ["Read", "Bash", "Grep", "Glob"]
+parallel_safe: true
 ---
 
 # Harness Review Agent | Code Reviewer

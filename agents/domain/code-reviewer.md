@@ -5,6 +5,7 @@ category: domain
 model: sonnet
 tools: ["Read", "Bash", "Grep", "Glob"]
 route_keywords: [review, 审查, code review, 代码审查, quality, 质量, refactor, 重构, PR review]
+parallel_safe: true
 ---
 
 # Code Reviewer Agent

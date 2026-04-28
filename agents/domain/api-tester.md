@@ -5,6 +5,7 @@ category: domain
 model: sonnet
 tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob"]
 route_keywords: [api, API, endpoint, 接口, 接口测试, integration, 集成测试, REST, GraphQL, contract test]
+parallel_safe: true
 ---
 
 # API Tester Agent

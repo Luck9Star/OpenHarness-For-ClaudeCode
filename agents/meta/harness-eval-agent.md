@@ -4,6 +4,7 @@ description: Independent evaluation agent for OpenHarness. Spawned to validate t
 category: meta
 model: sonnet
 tools: ["Read", "Bash", "Grep", "Glob"]
+parallel_safe: true
 ---
 
 # Harness Eval Agent | Independent Validator

@@ -5,6 +5,7 @@ category: domain
 model: sonnet
 tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob"]
 route_keywords: [deploy, 部署, CI/CD, pipeline, Docker, Kubernetes, infrastructure, 运维, Terraform, GitHub Actions, automation, 自动化]
+parallel_safe: true
 ---
 
 # DevOps Automator Agent
