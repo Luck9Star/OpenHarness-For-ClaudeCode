@@ -14,6 +14,10 @@ Usage:
     state-manager.py report SUBTASK STRATEGY VERIFICATION STATE_TARGET
                                    Write structured round report (L3)
     state-manager.py step-advance  Advance current_step by 1
+    state-manager.py step-status <step> <status>
+                                      Update a step's status (pending/running/completed/failed)
+    state-manager.py phase-advance Advance current_phase by 1
+    state-manager.py phase-status  Print current phase step status summary
     state-manager.py fail          Increment consecutive_failures
     state-manager.py reset-fail    Reset consecutive_failures to 0
     state-manager.py trip-breaker  Set circuit_breaker to tripped
@@ -414,6 +418,82 @@ def cmd_reset_fail(args):
     print("Failures reset to 0")
 
 
+def cmd_step_status(args):
+    """Update a single step's status in step_statuses."""
+    if len(args) < 2:
+        print("Usage: state-manager.py step-status <step_name> <status>", file=sys.stderr)
+        sys.exit(1)
+    path = find_state_file()
+    if not path:
+        print("No active harness workspace", file=sys.stderr)
+        sys.exit(1)
+    state = read_state(path)
+    step_name = args[0]
+    status = args[1]
+    valid_statuses = ("pending", "running", "completed", "failed")
+    if status not in valid_statuses:
+        print(f"Error: status must be one of {valid_statuses}, got '{status}'", file=sys.stderr)
+        sys.exit(1)
+    if "step_statuses" not in state:
+        state["step_statuses"] = {}
+    state["step_statuses"][step_name] = status
+    state["last_execution_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    write_state(state, path)
+    print(f"{step_name}: {status}")
+
+
+def cmd_phase_advance(args):
+    """Advance current_phase by 1. Only succeeds if all current phase steps are completed."""
+    path = find_state_file()
+    if not path:
+        print("No active harness workspace", file=sys.stderr)
+        sys.exit(1)
+    state = read_state(path)
+    current = state.get("current_phase")
+
+    if current is None:
+        print("No active phase. Use step-advance for linear mode.", file=sys.stderr)
+        sys.exit(1)
+
+    current = int(current)
+
+    step_statuses = state.get("step_statuses", {})
+    failed = [s for s, st in step_statuses.items() if st == "failed"]
+    if failed:
+        print(f"Cannot advance: {len(failed)} step(s) still failed: {', '.join(failed)}", file=sys.stderr)
+        sys.exit(1)
+
+    state["current_phase"] = current + 1
+    state["step_statuses"] = {}
+    state["last_execution_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    write_state(state, path)
+    print(f"Advanced to Phase {current + 1}")
+
+
+def cmd_phase_status(args):
+    """Print current phase step status summary."""
+    path = find_state_file()
+    if not path:
+        print("No active harness workspace", file=sys.stderr)
+        sys.exit(1)
+    state = read_state(path)
+    phase = state.get("current_phase")
+    if phase is None:
+        print("Linear mode (no phases active)")
+        return
+    step_statuses = state.get("step_statuses", {})
+    if not step_statuses:
+        print(f"Phase {phase}: no steps tracked yet")
+        return
+    lines = [f"Phase {phase}:"]
+    for step, status in sorted(step_statuses.items()):
+        lines.append(f"  {step}: {status}")
+    completed = sum(1 for s in step_statuses.values() if s == "completed")
+    total = len(step_statuses)
+    lines.append(f"  Progress: {completed}/{total}")
+    print("\n".join(lines))
+
+
 def cmd_trip_breaker(args):
     """Force-trip the circuit breaker."""
     path = find_state_file()
@@ -508,6 +588,9 @@ COMMANDS = {
     "log": cmd_log,
     "report": cmd_report,
     "step-advance": cmd_step_advance,
+    "step-status": cmd_step_status,
+    "phase-advance": cmd_phase_advance,
+    "phase-status": cmd_phase_status,
     "fail": cmd_fail,
     "reset-fail": cmd_reset_fail,
     "trip-breaker": cmd_trip_breaker,
