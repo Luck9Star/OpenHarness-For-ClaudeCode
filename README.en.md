@@ -492,5 +492,8 @@ openharness-cc/
 
 ## License
 
-Based on [OpenHarness](https://github.com/thu-nmrc/OpenHarness) by thu-nmrc (BSL 1.1).
-This Claude Code adaptation is provided as-is.
+This project contains code from different sources, each under its respective license:
+
+**Original Work**: Template structures (`templates/mission.md`, `templates/playbook.md`, `templates/progress.md`) derived from [OpenHarness](https://github.com/thu-nmrc/OpenHarness) by thu-nmrc, licensed under BSL 1.1. See the [NOTICE](NOTICE) file for details.
+
+**New Work**: All code and documentation beyond the above templates (including scripts, agent definitions, SKILL protocols, hook mechanisms, etc.) are original contributions of this project, licensed under [Apache License 2.0](LICENSE).

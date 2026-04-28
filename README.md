@@ -521,5 +521,8 @@ openharness-cc/
 
 ## 许可证
 
-基于 [OpenHarness](https://github.com/thu-nmrc/OpenHarness) by thu-nmrc (BSL 1.1)。
-本 Claude Code 适配版本按原样提供。
+本项目包含来自不同来源的代码，分别适用以下许可：
+
+**原始工作**：部分模板结构（`templates/mission.md`、`templates/playbook.md`、`templates/progress.md`）源自 [OpenHarness](https://github.com/thu-nmrc/OpenHarness) by thu-nmrc，适用 BSL 1.1 许可证。详见 [NOTICE](NOTICE) 文件。
+
+**新增工作**：除上述模板外的所有代码和文档（包括脚本、agent 定义、SKILL 协议、hook 机制等）为本项目原创贡献，适用 [Apache License 2.0](LICENSE)。
