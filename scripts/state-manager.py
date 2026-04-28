@@ -458,9 +458,12 @@ def cmd_phase_advance(args):
     current = int(current)
 
     step_statuses = state.get("step_statuses", {})
-    failed = [s for s, st in step_statuses.items() if st == "failed"]
-    if failed:
-        print(f"Cannot advance: {len(failed)} step(s) still failed: {', '.join(failed)}", file=sys.stderr)
+    # Caller must track ALL phase steps before calling phase-advance.
+    # We verify no step is incomplete (running, pending, or failed).
+    non_completed = [s for s, st in step_statuses.items() if st != "completed"]
+    if non_completed:
+        statuses = ", ".join(f"{s}={step_statuses[s]}" for s in non_completed)
+        print(f"Cannot advance: incomplete step(s): {statuses}", file=sys.stderr)
         sys.exit(1)
 
     state["current_phase"] = current + 1
