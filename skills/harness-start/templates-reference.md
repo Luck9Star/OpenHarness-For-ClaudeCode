@@ -47,6 +47,27 @@ Create a concrete step-by-step plan using the quality profile from Step 2.
 - The final step should always be a `verify` step
 - When wizard was used, align steps with the deliverables from Step 1B
 
+**Phase grouping for parallel execution** (when task has independent steps):
+
+- Steps that can execute independently (no shared files, no output dependencies) SHOULD be assigned the same `Phase: N` value
+- Steps with dependencies on prior steps MUST have a higher Phase number
+- Steps editing the same files MUST be in different Phases (sequential, not parallel)
+- `review`, `fix`, and `verify` steps are typically in their own Phase (after all `implement` Phases)
+- When grouping, aim for max 3 steps per Phase (matches default `max_concurrency`)
+- Steps without `Phase` field = implicit Phase 0 (linear execution)
+
+**Phase grouping example:**
+```
+Phase 1: Step 1 (impl auth), Step 2 (impl product API), Step 3 (impl payment)
+Phase 2: Step 4 (review all), Step 5 (fix issues)
+Phase 3: Step 6 (verify integration)
+```
+
+**When to use Phase grouping:**
+- Task has 3+ `implement` steps that target different files/modules → USE Phase grouping
+- Task is sequential by nature (Step 2 depends on Step 1 output) → do NOT use Phase grouping
+- Task has only 1-2 implement steps → do NOT use Phase grouping (overhead exceeds benefit)
+
 **Cycle playbook** (for iterative review-fix-verify tasks):
 - If the task type is "review" or "iterative improvement" (e.g., "review codebase and fix all issues"), use a cycle playbook:
   ```
