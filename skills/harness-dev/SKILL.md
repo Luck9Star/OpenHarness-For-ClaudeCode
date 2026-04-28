@@ -182,13 +182,13 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" report "<subtask>" "<st
 
 Then, check the current playbook step's **Type** field. For detailed step type instructions, read `${CLAUDE_PLUGIN_ROOT}/skills/harness-dev/loop-reference.md`. Summary of types:
 
-| Type | Action | Validates? |
-|---|---|---|
-| `implement` | Code directly (single) or delegate to dev-agent (dual) | Yes — run 5.6 |
-| `review` | Spawn harness-review-agent with cumulative scope | No — skip to 5.7/5.8 |
-| `fix` | Apply fixes from review_report.json + compliance gaps | Yes — run 5.6 |
-| `human-review` | Pause for human, advance step, output LOOP_PAUSE | No |
-| `verify` | Spawn harness-eval-agent for independent validation | No |
+| Type | Action | Validates? | Agent Routing |
+|------|--------|-----------|---------------|
+| `implement` | Code directly (single) or delegate to agent (dual/parallel) | Yes — run 5.6 | Router → specialist/keywords → dev-agent |
+| `review` | Spawn review agent with cumulative scope | No — skip to 5.7/5.8 | Router → specialist/keywords → review-agent |
+| `fix` | Apply fixes from review_report.json + compliance gaps | Yes — run 5.6 | Router → specialist/keywords → dev-agent |
+| `human-review` | Pause for human, advance step, output LOOP_PAUSE | No | No spawn |
+| `verify` | Spawn eval-agent for independent validation | No | Router → specialist/keywords → eval-agent |
 
 **Key constraints per type:**
 - **implement**: Single mode uses Read/Write/Edit/Bash/Grep. Dual mode spawns agent (see Domain Agent Routing below). Load skills from state file if set.
@@ -197,20 +197,56 @@ Then, check the current playbook step's **Type** field. For detailed step type i
 - **human-review**: Advance step counter BEFORE pausing (`step-advance` then `status paused`). Output `<promise>LOOP_PAUSE</promise>`.
 - **verify**: Spawn `harness-eval-agent` with eval criteria + step description.
 
-**Domain Agent Routing (implement and fix steps):**
+**Agent Selection (all modes)**
 
-Before spawning an agent for `implement` or `fix` steps, check if a domain specialist should handle the task:
+ALL step types route through the unified Agent Router. See `agent-spawn.md` for full details.
+Priority: `specialist:` field → `route_keywords` match → step-type fallback.
 
-1. **Manual override**: If the playbook step specifies a `specialist:` field (e.g., `specialist: security-engineer`), use that agent directly.
-2. **Auto-discovery**: Otherwise, read the step description and scan `agents/domain/*.md` for matching `route_keywords` in each agent's frontmatter.
-   - Use glob: `agents/domain/*.md` to list all domain agents
-   - Read each agent's YAML frontmatter to extract `route_keywords` (no need to read the full file)
-   - Match keywords against the step description (case-insensitive)
-3. **Select best match**: If one or more domain agents match, use the one with the most keyword hits. If multiple tie, prefer the first match.
-4. **Fallback**: If no domain agent matches, use `harness-dev-agent` (existing behavior).
-5. **Log the routing decision**: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Routed <step> to <agent-name> (match: <keywords>)"` or `"... to harness-dev-agent (no domain match)"`
+**Phase Detection**
 
-Domain agents follow the same spawn contract as `harness-dev-agent` — they receive the step description, constraints from mission.md, eval criteria, and skills to load. Their output format may differ (domain-specific reports) but the harness loop treats them as drop-in replacements for the code execution phase. `harness-eval-agent` still provides independent validation regardless of which agent did the implementation.
+Read `current_phase` from the state file:
+- If `current_phase` is `null` or absent → **Linear mode** (execute single step, current behavior)
+- If `current_phase` is a number → **Phase mode** (execute all pending steps in current Phase)
+
+**Linear Mode** (backward compatible)
+
+Execute the single step indicated by `current_step`. Follow step-type instructions in `loop-reference.md`. For agent selection, use the unified Router (see `agent-spawn.md`).
+
+**Phase Mode**
+
+1. **Identify pending steps**: Read the playbook. Extract all steps with `Phase: {current_phase}`. Filter to steps with `step_statuses` == `pending` or absent.
+
+2. **Parallel spawn**: For each pending step:
+   a. Select agent via unified Router (`agent-spawn.md` Section 1)
+   b. Construct prompt via Prompt Builder (`agent-spawn.md` Section 2)
+   c. Check `parallel_safe` — extract non-safe steps for serial execution after group
+
+   Spawn all parallel-safe agents in a single message:
+   ```
+   Agent(name="step-N-slug", subagent_type="general-purpose", prompt="...")
+   Agent(name="step-M-slug", subagent_type="general-purpose", prompt="...")
+   # All dispatched concurrently
+   ```
+
+3. **Collect results**: After all agents return, read each agent's output.
+
+4. **Validate each completed step**: For `implement`/`fix` steps, spawn `harness-eval-agent` per step. For `review` steps, read `review_report.json`.
+
+5. **Update step statuses**:
+   ```bash
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" step-status "Step N" completed
+   # or
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" step-status "Step N" failed
+   ```
+
+6. **Handle serial-only steps**: Execute `parallel_safe: false` steps one at a time after the parallel group.
+
+7. **Handle failures**: Retry failed steps individually (serial execution). Retries count toward `consecutive_failures`.
+
+8. **Log the routing decision**:
+   ```bash
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Phase {N}: {completed_count}/{total} steps completed"
+   ```
 
 ### 5.6. Run Validation
 
@@ -249,6 +285,16 @@ Step 1 (review) → Step 2 (fix) → Step 3 (verify) → back to Step 1 (review)
 **Convergence enforcement** (state-file driven):
 - `min_cycles` in state file: The eval-agent convergence criterion MUST check `cycle_iteration >= min_cycles` before allowing PASS. If `min_cycles > 0` and cycle < min_cycles, convergence FAILS automatically.
 - `max_cycles` in state file: `step-advance` will trip the circuit breaker when `cycle_iteration >= max_cycles`, preventing infinite loops. No manual playbook reading needed.
+
+**Phase-aware advancement**: After marking a step as `completed` via `step-status`, check if all steps in the current Phase are complete:
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" phase-status
+```
+If all steps show `completed`, advance to the next Phase:
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" phase-advance
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Phase {N} complete, advancing to Phase {N+1}"
+```
 
 Check if all eval criteria are satisfied. For cycle missions, ALL criteria must pass in the same cycle iteration AND convergence criterion must pass (which includes min_cycles check) — not accumulated across iterations. If so:
 
