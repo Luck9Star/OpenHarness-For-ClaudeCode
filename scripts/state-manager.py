@@ -141,6 +141,7 @@ def cmd_init(args):
     cycle_steps = None
     min_cycles = 0
     max_cycles = 0
+    max_concurrency = 3
     force = False
 
     def _validate_value(flag, value):
@@ -210,6 +211,16 @@ def cmd_init(args):
                 print(f"Error: --max-cycles requires a non-negative integer, got '{args[i+1]}': {e}", file=sys.stderr)
                 sys.exit(1)
             i += 2
+        elif args[i] == "--max-concurrency" and i + 1 < len(args):
+            _validate_value("--max-concurrency", args[i + 1])
+            try:
+                max_concurrency = int(args[i + 1])
+                if max_concurrency < 1:
+                    raise ValueError("must be >= 1")
+            except ValueError as e:
+                print(f"Error: --max-concurrency requires a positive integer, got '{args[i+1]}': {e}", file=sys.stderr)
+                sys.exit(1)
+            i += 2
         elif args[i] == "--force":
             force = True
             i += 1
@@ -267,6 +278,9 @@ def cmd_init(args):
         "min_cycles": min_cycles,
         "max_cycles": max_cycles,
         "knowledge_index": [],
+        "current_phase": None,
+        "step_statuses": {},
+        "max_concurrency": max_concurrency,
     }
 
     write_state(state, state_path)
