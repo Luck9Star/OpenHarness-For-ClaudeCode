@@ -115,14 +115,22 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     *)
-      echo "Warning: Unknown argument: $1" >&2
-      shift
+      echo "Error: Unknown argument: $1" >&2
+      echo "Usage: setup-harness-loop.sh <task-name> [--mode single|dual] [--verify INSTRUCTION] [--max-iterations N] [--skills SKILL1,SKILL2] [--loop-mode in-session|clean] [--force]" >&2
+      exit 1
       ;;
   esac
 done
 
 # ---- Initialize state file ----
 echo "Initializing OpenHarness loop state..."
+
+# Auto-detect existing workspace and add --force if needed.
+# This prevents "Active workspace exists" errors when re-running
+# harness-dev on an already-initialized workspace (the common case).
+if [[ -z "$FORCE" && -f ".claude/harness-state.json" ]]; then
+  FORCE="--force"
+fi
 
 INIT_ARGS=("$TASK_NAME" --mode "$EXECUTION_MODE")
 if [[ -n "$VERIFY_INSTRUCTION" ]]; then

@@ -64,7 +64,7 @@ Show the most recent entries from `.claude/harness/progress.md` (if any exist).
 > - Read the execution log in `.claude/harness/logs/execution_stream.log` to diagnose the root cause
 > - Fix the underlying issue manually
 > - Reset the circuit breaker with: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" reset-fail`
-> - Update the state to running: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" update status running`
+> - Update the state to idle: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" update status idle`
 
 **If mission is complete** (status: `mission_complete`), display:
 

@@ -83,12 +83,54 @@ def cmd_read(args):
     print(json.dumps(read_state(path), indent=2))
 
 
+def _auto_archive(state_path, existing_state):
+    """Auto-archive workspace files when force-overwriting via init.
+
+    This is a structural safety net: regardless of whether the agent
+    follows the SKILL.md protocol's Step 1.5, the workspace files
+    are archived before they can be overwritten.
+    """
+    import shutil
+    task_name = existing_state.get("task_name", "untitled")
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    archive_dir = Path.cwd() / ".claude/harness/archive" / f"{task_name}-{timestamp}"
+    archive_dir.mkdir(parents=True, exist_ok=True)
+
+    harness_dir = Path.cwd() / ".claude/harness"
+    files_to_archive = ["mission.md", "playbook.md", "eval-criteria.md", "progress.md"]
+
+    archived = []
+    for f in files_to_archive:
+        src = harness_dir / f
+        if src.exists():
+            shutil.move(str(src), str(archive_dir / f))
+            archived.append(f)
+
+    logs_src = harness_dir / "logs"
+    if logs_src.exists() and any(logs_src.iterdir()):
+        shutil.copytree(str(logs_src), str(archive_dir / "logs"))
+        archived.append("logs/")
+
+    if archived:
+        if state_path.exists():
+            shutil.move(str(state_path), str(archive_dir / "harness-state.json"))
+            archived.append("harness-state.json")
+        print(json.dumps({
+            "status": "auto-archived",
+            "path": str(archive_dir),
+            "files": archived,
+            "task_name": task_name
+        }))
+    else:
+        archive_dir.rmdir()
+
+
 def cmd_init(args):
     """Initialize a new state file."""
     # Validate task_name: reject flag-like values (e.g. "--mission")
     if args and args[0].startswith("-"):
         print(f"Error: task_name must not start with '-', got '{args[0]}'. "
-              f"Provide the task name as the first positional argument.", file=sys.stderr)
+              f"Usage: state-manager.py init \"TASK_NAME\" [--force] [--mode MODE] ...", file=sys.stderr)
         sys.exit(1)
     task_name = args[0] if args else "untitled"
     execution_mode = "single"
@@ -193,6 +235,12 @@ def cmd_init(args):
                     file=sys.stderr
                 )
                 sys.exit(1)
+            # Auto-archive: when force-overwriting, archive old workspace FIRST
+            # so old data is never lost regardless of agent protocol compliance.
+            # NOTE: We archive whenever force=True and workspace exists, even if
+            # the task name is the same (re-init is the most common scenario).
+            if force and state_path.exists():
+                _auto_archive(state_path, existing)
         except (json.JSONDecodeError, OSError):
             pass  # corrupted file, allow overwrite
 
@@ -322,6 +370,7 @@ def cmd_step_advance(args):
         print(f"Advanced to Step {next_num}")
     else:
         print(f"Cannot parse step from: {current}", file=sys.stderr)
+        sys.exit(1)
 
 
 def cmd_fail(args):
@@ -457,6 +506,9 @@ def main():
         print(__doc__)
         sys.exit(0)
     cmd = sys.argv[1]
+    if cmd in ("--help", "-h"):
+        print(__doc__)
+        sys.exit(0)
     if cmd not in COMMANDS:
         print(f"Unknown command: {cmd}", file=sys.stderr)
         print(f"Available: {', '.join(COMMANDS.keys())}", file=sys.stderr)

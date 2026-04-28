@@ -2,7 +2,7 @@
 name: harness-dev
 description: "Autonomous development loop for OpenHarness. Parses arguments, manages loop state, executes playbook steps via single or dual mode, validates via eval-agent. Trigger: /harness-dev."
 argument-hint: "[--mode single|dual] [--max-iterations N] [--resume]"
-allowed-tools: ["Bash", "Task", "Read", "Write", "Edit"]
+allowed-tools: ["Bash", "Agent", "Read", "Write", "Edit"]
 ---
 
 # /harness-dev -- Autonomous Development Loop
@@ -132,8 +132,9 @@ Read `.claude/harness-state.json` first. Check in this exact order:
 2. **Mission identity gate** (CRITICAL — prevents stale-state early exit):
    Read the `task_name` field from the state file. Then read `.claude/harness/mission.md` Section 1 (Mission Name). **If they differ**, the state file is STALE from a previous mission — you MUST reinitialize before doing anything else:
    ```
-   # Preserve verify_instruction and skills from the stale state, then reinitialize
-   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" init <mission-name-from-mission-md> --mode <execution_mode-from-state> --max-iterations <from-state> --verify "<verify_instruction-from-state>" --skills "<skills-from-state>" --force
+   # Preserve ALL cycle-related fields from the stale state, then reinitialize
+   mkdir -p .claude/harness/logs
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" init <mission-name-from-mission-md> --mode <execution_mode-from-state> --max-iterations <from-state> --verify "<verify_instruction-from-state>" --skills "<skills-from-state>" --loop-mode <loop_mode-from-state> --cycle-steps <cycle_steps-from-state> --min-cycles <min_cycles-from-state> --max-cycles <max_cycles-from-state> --force
    ```
    After reinitializing, re-read the state file to get fresh state. Log the identity mismatch:
    ```

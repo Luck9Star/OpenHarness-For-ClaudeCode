@@ -210,16 +210,27 @@ def cleanup_archives(base_path):
 
 
 def main():
+    args = sys.argv[1:]
+
+    if "--help" in args or "-h" in args:
+        print(__doc__)
+        sys.exit(0)
+
     base_path = Path.cwd()
 
     # Parse arguments
-    args = sys.argv[1:]
     do_all = "--all" in args or not args
     do_logs = do_all or "--logs" in args
     do_progress = do_all or "--progress" in args
     do_state = do_all or "--state" in args
     do_temp = do_all or "--temp" in args
     do_archives = do_all or "--archives" in args
+
+    # Warn about unrecognized flags
+    known = {"--all", "--logs", "--progress", "--state", "--temp", "--archives", "--help", "-h"}
+    unrecognized = [a for a in args if a.startswith("-") and a not in known]
+    if unrecognized:
+        print(f"Warning: Unrecognized arguments: {' '.join(unrecognized)}", file=sys.stderr)
 
     print(f"=== OpenHarness Cleanup Report ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')}) ===")
     print()

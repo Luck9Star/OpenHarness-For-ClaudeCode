@@ -48,7 +48,15 @@ If no flags are provided, enter interactive mode:
 
 ## Workflow
 
-1. **Check workspace exists** -- verify `.claude/harness-state.json` and `.claude/harness/mission.md` exist. If not, tell the user to run `/harness-start` first.
+1. **Archive current workspace (STRUCTURAL GATE -- MANDATORY)** -- Before making any modifications, archive the current workspace:
+
+   ```bash
+   python3 ${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py archive
+   ```
+
+   You MUST see `"status": "archived"` or `"status": "nothing_to_archive"` before proceeding. This protects against data loss if edits need to be rolled back.
+
+2. **Check workspace exists** -- verify `.claude/harness-state.json` and `.claude/harness/mission.md` exist. If not, tell the user to run `/harness-start` first.
 
 2. **Parse arguments** -- determine which modifications to apply.
 

@@ -15,12 +15,12 @@ This skill is a **workspace initialization protocol**, not a coding task. You MU
 
 **Hard gates — each must pass before proceeding:**
 
-1. **Workspace directory exists**: `mkdir -p .claude/harness/logs` — run this FIRST
-2. **mission.md written**: Must exist at `.claude/harness/mission.md` with NO `[placeholder]` markers
-3. **playbook.md written**: Must exist at `.claude/harness/playbook.md` with concrete steps
-4. **eval-criteria.md written**: Must exist at `.claude/harness/eval-criteria.md` with machine-verifiable checks
-5. **progress.md written**: Must exist at `.claude/harness/progress.md`
-6. **State file initialized**: `state-manager.py init` must succeed
+1. **Old workspace archived**: If `.claude/harness-state.json` exists, archive must complete BEFORE writing any new files. This is enforced structurally: `state-manager.py init --force` auto-archives. Skip only if no state file exists.
+2. **State file initialized**: `state-manager.py init` must succeed. This MUST run BEFORE writing workspace files (Steps 5→6 order matters).
+3. **mission.md written**: Must exist at `.claude/harness/mission.md` with NO `[placeholder]` markers
+4. **playbook.md written**: Must exist at `.claude/harness/playbook.md` with concrete steps
+5. **eval-criteria.md written**: Must exist at `.claude/harness/eval-criteria.md` with machine-verifiable checks
+6. **progress.md written**: Must exist at `.claude/harness/progress.md`
 7. **Verification**: Re-read all 4 workspace files and confirm NO `[placeholder]` remains
 
 **If you find yourself writing implementation code (creating Python/Rust/JS files, editing source code) BEFORE completing ALL 7 gates above — STOP. You have skipped the protocol. Go back and complete workspace setup first.**
@@ -89,21 +89,36 @@ Skip this entire step in Quick mode — go directly to Step 2.
 
 In wizard mode, read `${CLAUDE_PLUGIN_ROOT}/skills/harness-start/wizard-reference.md` and follow Steps 1A–1E in order. Each step requires user confirmation before proceeding. The wizard covers: task classification & codebase scan, deliverable definition, verify instruction derivation, skill recommendation, and loop mode selection.
 
-## Step 1.5: Workspace Overwrite Check
+## Step 1.5: Workspace Overwrite Check (STRUCTURAL GATE — MANDATORY)
 
-Before generating any files, check if an existing harness workspace is active:
+This step is **not advisory** — it is a hard gate. You MUST execute this before Step 5 writes any files.
 
-Read `.claude/harness-state.json`. If it exists:
-- If status is `running` or `idle`: warn the user that an active workspace exists, show the task name and status. Ask: "This will overwrite the existing workspace. Continue? (yes/no)"
-  - If the user confirms, add `--force` to the state-manager.py init command in Step 6
-  - If the user declines, stop and suggest `/harness-status` or `/harness-edit`
-- If status is `mission_complete` or `failed`: proceed without warning (old task is done). `--force` is not needed for terminal statuses.
+**Gate check — run this FIRST:**
 
-**In all cases where an existing workspace is detected**, archive the old workspace immediately (before Step 5 writes new files):
+```bash
+# Check if a workspace state file exists
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" read
+```
+
+If the output is `{"error": "no active harness workspace"}` → no old workspace exists. Skip to Step 2.
+
+If a workspace IS returned:
+
+1. **Archive the old workspace immediately:**
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" archive
 ```
+
+This moves all workspace files (mission.md, playbook.md, eval-criteria.md, progress.md, logs/) into `.claude/harness/archive/<task-name>-<timestamp>/`. **You MUST see `"status": "archived"` or `"status": "nothing_to_archive"` before proceeding.**
+
+2. **If the old workspace was active** (status `running` or `idle`): warn the user that an active workspace was archived, show the task name and status, then proceed.
+
+3. **If the old workspace was terminal** (status `mission_complete` or `failed`): proceed silently.
+
+**Why this gate is structural:** `state-manager.py init --force` also auto-archives, but explicit archival at this step catches the case where the agent forgets `--force`. Double protection = zero data loss.
+
+**DO NOT proceed to Step 5 until this gate passes.**
 
 ## Step 2: Quality Preference Discovery
 
@@ -146,18 +161,9 @@ Derive a concise task name from the task description:
 - Convert to lowercase, hyphen-separated
 - Example: "Add user authentication with JWT" -> `user-authentication-jwt`
 
-## Step 5: Write Template Files
+## Step 5: Initialize State File
 
-Copy the templates from `${CLAUDE_PLUGIN_ROOT}/templates/` and fill them completely. Every `[placeholder]` must be replaced with concrete, task-specific content.
-
-**All files must be written to `.claude/harness/` directory** — create the directory first:
-```bash
-mkdir -p .claude/harness/logs
-```
-
-For detailed template file structure (mission.md, playbook.md, eval-criteria.md, progress.md), read `${CLAUDE_PLUGIN_ROOT}/skills/harness-start/templates-reference.md`. Key rules: every `[placeholder]` must be replaced; every deliverable must have a corresponding check; cross-module integration checks are mandatory for multi-phase tasks.
-
-## Step 6: Initialize State File
+**IMPORTANT: This step MUST run BEFORE writing workspace files (Step 6).** The init command auto-archives old workspace files when `--force` is needed, protecting them from being overwritten by the Write tool in the next step.
 
 **Derive cycle_steps** from the playbook structure (no separate user question needed):
 
@@ -183,7 +189,17 @@ Run the state manager to create the JSON state file:
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py init <task-name> --mode <mode> --verify "<verify-instruction>" --skills "<skills>" --loop-mode <in-session|clean> [--cycle-steps <start,end>] [--force]
 ```
 
-Use `--force` only if the user confirmed overwrite in Step 1.5. Use `--loop-mode` from Step 1E. Use `--cycle-steps` as derived above. This creates `.claude/harness-state.json` and `.claude/harness/logs/execution_stream.log`.
+Use `--force` whenever an existing workspace was detected in Step 1.5. Use `--loop-mode` from Step 1E. Use `--cycle-steps` as derived above. This creates `.claude/harness-state.json` and `.claude/harness/logs/execution_stream.log`.
+
+When `--force` is used and old workspace files exist, init auto-archives them to `.claude/harness/archive/` BEFORE overwriting the state file. This is a structural safety net that works even if the agent forgets to call `archive` separately.
+
+## Step 6: Write Template Files
+
+Copy the templates from `${CLAUDE_PLUGIN_ROOT}/templates/` and fill them completely. Every `[placeholder]` must be replaced with concrete, task-specific content.
+
+**All files must be written to `.claude/harness/` directory** — the directory was already created by init in Step 5.
+
+For detailed template file structure (mission.md, playbook.md, eval-criteria.md, progress.md), read `${CLAUDE_PLUGIN_ROOT}/skills/harness-start/templates-reference.md`. Key rules: every `[placeholder]` must be replaced; every deliverable must have a corresponding check; cross-module integration checks are mandatory for multi-phase tasks.
 
 ## Step 7: Verify Initialization
 
@@ -218,7 +234,16 @@ Files created:
   .claude/harness/progress.md       -- blank tracking log
   .claude/harness-state.json        -- state file
 
-Ready to start execution. Run /harness-dev to begin.
+Ready to start execution.
+
+**IMPORTANT: Start /harness-dev in a NEW session (or run /clear first).**
+
+Why a new session:
+- This session's context is consumed by workspace initialization (plan parsing, wizard, file writes).
+- /harness-dev reads all state from disk files — it does not depend on conversation history.
+- A clean session gives the full context window for actual development work.
+
+To begin: open a new Claude Code session in this project directory, then run /harness-dev --mode <single|dual>
 ```
 
 ## Important Rules
@@ -226,7 +251,7 @@ Ready to start execution. Run /harness-dev to begin.
 - Never leave `[placeholder]` text in any generated file.
 - If the task description is ambiguous, make reasonable assumptions and fill in concrete details.
 - The verify instruction is a natural language AI instruction (not a shell command). It tells the eval-agent what to check.
-- Always run state-manager.py as the last step -- it creates the `.claude/` directory and state file.
+- state-manager.py init is Step 5, which MUST run BEFORE writing workspace files in Step 6.
 - When using `--from-plan`, faithfully reflect the plan's structure.
 - In wizard mode, each confirmation step must complete before moving to the next.
 - In quick mode, skip Steps 1A-1E entirely and use the provided arguments as-is.
