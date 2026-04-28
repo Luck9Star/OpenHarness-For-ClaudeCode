@@ -7,75 +7,74 @@ Read this when executing a step in section 5.5 of harness-dev.
 
 ## type: implement (or no type field -- backwards compatible)
 
-Check `execution_mode` in the state file:
+Implement code to meet the step's completion criteria.
 
-**Single Mode (`execution_mode: single`)**
+**Single mode** (`execution_mode: single`): Plan and code directly using Claude Code tools (Read, Write, Edit, Bash, Grep, Glob). If `skills` field is set in state file, load each skill via Skill tool before starting work.
 
-You plan AND code directly. Use Claude Code tools (Read, Write, Edit, Bash, Grep).
+**Dual mode** (`execution_mode: dual`): Plan only. Delegate coding to an agent selected via the unified Agent Router (see `agent-spawn.md`).
 
-If the `skills` field is set in the state file, load each specified skill using the Skill tool before starting step execution.
+Agent selection follows the priority order from `agent-spawn.md` Section 1:
+1. Playbook step `specialist:` field → use that agent
+2. Auto-discovery: match step description against `agents/domain/*.md` `route_keywords`
+3. Fallback: `harness-dev-agent`
 
-After completing the step:
-- Log what was done: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Completed <step description>"`
-- Run validation (see step 5.6)
+For parallel execution within a Phase, see `agent-spawn.md` Section 3 (Spawn Manager).
 
-**Dual Mode (`execution_mode: dual`)**
-
-You plan only. Delegate coding to a sub-agent.
-
-1. Read the current step requirements from the playbook
-2. **Select agent** — run domain agent routing (see SKILL.md section 5.5):
-   - If playbook step has `specialist:` field → use that agent
-   - Otherwise glob `agents/domain/*.md`, match `route_keywords` against step description
-   - If a domain agent matches → use it; otherwise fall back to `harness-dev-agent`
-3. Construct a detailed prompt with: task, file paths, constraints from `.claude/harness/mission.md`, eval criteria, skills to load
-4. Spawn the selected agent in the current directory
-5. Wait for the agent to complete
-6. Log the delegation: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Delegated <step> to <agent-name>"`
+State commands:
+- Before starting: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" step-status "Step N" running`
+- After completion: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" step-status "Step N" completed`
+- On failure: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" step-status "Step N" failed`
 
 ## type: review
 
-ALWAYS spawn `harness-review-agent` -- read-only code review.
+ALWAYS spawn a review agent. Agent selection via unified Router (see `agent-spawn.md`):
 
 1. Read the current step description from the playbook
-2. **Determine cumulative scope**: Before spawning the review agent, compute the full review scope:
+2. Select agent via Router:
+   - Step `specialist:` field → use that agent (e.g., security review → `security-engineer`)
+   - Auto-discovery: match step description against domain agent `route_keywords`
+   - Fallback: `harness-review-agent`
+3. **Determine cumulative scope**: Before spawning the review agent, compute the full review scope:
    - Run `git diff --name-only <branch-point>..HEAD` to list ALL files modified since mission start
    - If git is unavailable, read the execution stream log to identify all files modified across iterations
    - Pass this full file list to the review agent as its scope
-3. Spawn `harness-review-agent` with:
+4. Spawn the selected agent with:
    - The current step description
-   - **Cumulative scope**: ALL modified files since mission start (not just current step's diff)
-   - **Previous fix re-audit**: Explicitly instruct the agent to re-examine fix code from ALL previous iterations, not just current changes
-   - **Density floor**: Instruct the agent that the review must have >= 1 finding per 1500 LOC, with exhaustion evidence for clean areas
-4. The review agent writes findings to `.claude/harness/logs/review_report.json`
-5. Read `.claude/harness/logs/review_report.json` to check the verdict:
-   - `pass` -- verify the `scope.cumulative` field is `true` and `scope.files_reviewed` covers all modified files. Also verify `compliance.requirements_met == compliance.requirements_total` (no spec gaps). If either is incomplete, re-dispatch with expanded scope.
-   - `conditional-pass` -- log warnings, check `compliance.gaps` for missing requirements. Proceed but note issues.
+   - **Cumulative scope**: ALL modified files since mission start
+   - **Previous fix re-audit**: Explicitly instruct the agent to re-examine fix code from ALL previous iterations
+   - **Density floor**: >= 1 finding per 1500 LOC, with exhaustion evidence for clean areas
+5. The review agent writes findings to `.claude/harness/logs/review_report.json`
+6. Read `.claude/harness/logs/review_report.json` to check the verdict:
+   - `pass` -- verify `scope.cumulative == true` and `compliance.requirements_met == compliance.requirements_total`. If incomplete, re-dispatch with expanded scope.
+   - `conditional-pass` -- log warnings, check `compliance.gaps` for missing requirements.
    - `fail` -- log critical issues and compliance gaps, next fix step will address them
-6. **Verify review quality** (anti-shallow-pass defense):
-   - Check the `density` field in the report: `loc_per_finding` should be <= 1500
-   - Check `blind_spots` field exists and is non-empty for large codebases
-   - Check `compliance.gaps` — if any gap has status `missing`, it's a requirement with zero implementation
-   - If density is suspiciously low (e.g., > 2000 LOC per finding), re-dispatch with stricter instructions
-7. Log: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Review completed: <overall verdict>, compliance <met>/<total>, density <loc_per_finding> LOC/finding, <N> files reviewed (cumulative)"`
-8. Skip validation (step 5.6) for review steps -- proceed directly to step 5.7/5.8
+7. **Verify review quality** (anti-shallow-pass defense):
+   - `density.loc_per_finding` <= 1500
+   - `blind_spots` field exists and is non-empty for large codebases
+   - `compliance.gaps` — any gap with status `missing` is a requirement with zero implementation
+   - If density > 2000 LOC/finding, re-dispatch with stricter instructions
+8. Log: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Review completed: <verdict>, compliance <met>/<total>, density <loc/finding>"`
+9. Skip validation (step 5.6) for review steps — proceed directly to step 5.7/5.8
 
 ## type: fix
 
 Read the review report, then apply fixes.
 
 1. Read `.claude/harness/logs/review_report.json`
-2. If report is missing or overall verdict was `pass` with no compliance gaps, skip -- log and advance
+2. If report is missing or verdict was `pass` with no compliance gaps → skip, log and advance
 3. Extract issue list AND compliance gaps:
-   - Issues from `issues` array -> fix code quality bugs
-   - Gaps from `compliance.gaps` array -> implement missing requirements or complete partial implementations
+   - Issues from `issues` array → fix code quality bugs
+   - Gaps from `compliance.gaps` array → implement missing requirements
 
 Then dispatch based on execution mode:
 - **Single mode**: Fix yourself using Read, Edit, Write, Bash
-- **Dual mode**: Select agent via domain routing (see SKILL.md section 5.5), falling back to `harness-dev-agent`. Route by: playbook `specialist:` field first, then match review report issue categories against domain agent `route_keywords` (e.g., security issues → security-engineer, schema issues → database-optimizer).
+- **Dual mode**: Select agent via unified Router (see `agent-spawn.md`). Route by:
+  1. Playbook `specialist:` field
+  2. Match review report issue categories against domain agent `route_keywords`
+  3. Fallback: `harness-dev-agent`
 
 After fixes:
-- Log: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Applied fixes for <N> issues + <M> compliance gaps from review"`
+- Log: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Applied fixes for <N> issues + <M> compliance gaps"`
 - Run validation (step 5.6) if step has completion criteria
 
 ## type: human-review
