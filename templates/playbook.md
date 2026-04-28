@@ -6,6 +6,7 @@
 
 ### Step 1: [Step Name]
 
+**Phase**: `[N]` (optional — steps in the same Phase execute in parallel; omit for linear execution)
 **Type**: `[implement|review|fix|verify|human-review]`
 **What to do**:
 ```
@@ -28,6 +29,7 @@
 
 ### Step 2: [Step Name]
 
+**Phase**: `[N]` (optional — steps in the same Phase execute in parallel; omit for linear execution)
 **Type**: `[implement|review|fix|verify|human-review]`
 **What to do**:
 ```
@@ -48,10 +50,20 @@
 
 ## Dependencies
 
+### Linear (no Phase fields)
 ```
 Step 1 → Step 2 → Step 3
               \ (on failure) → retry Step 2
 ```
+
+### Phase-Based (with Phase fields)
+```
+Phase 1: [Step 1, Step 2] (parallel)
+Phase 2: [Step 3] (waits for Phase 1)
+Phase 3: [Step 4, Step 5, Step 6] (parallel, waits for Phase 2)
+```
+
+> Steps in the same Phase MUST be independent (not editing the same files).
 
 ## Completion Criteria Guidelines
 
