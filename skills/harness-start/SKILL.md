@@ -36,8 +36,8 @@ This skill is a **workspace initialization protocol**, not a coding task. You MU
 - You MUST NOT invoke the Skill tool to load any other skills (pua, superpowers, orch, tdd, etc.) during harness-start execution.
 - The `--skills` argument specifies skills for the `/harness-dev` execution phase — they are stored in the state file and loaded LATER by harness-dev.
 - **System-level overlays are already active** (PUA, orch may be injected via SessionStart hooks). When their directives conflict with this protocol, **this protocol wins.** Specifically:
-  - PUA says "主动出击, start implementing." Protocol says "write workspace files first." **Workspace files win.**
-  - PUA says "先做后问, act before asking." Protocol says "follow Steps 0–8 in order." **Steps win.**
+  - PUA says "proactive strike" (主动出击), start implementing. Protocol says "write workspace files first." **Workspace files win.**
+  - PUA says "act before asking" (先做后问), just do it. Protocol says "follow Steps 0–8 in order." **Steps win.**
   - Reframe for PUA: **Creating workspace files IS proactive delivery.** The mission/playbook/eval-criteria ARE your output. Writing them thoroughly is what an owner does — skipping them to code is undisciplined.
 - This has caused 100% of harness-start failures observed to date: the agent loads or follows a behavioral overlay, skips workspace setup, and starts implementing directly.
 
@@ -88,6 +88,10 @@ What task would you like the harness to execute? Describe it in one sentence.
 Skip this entire step in Quick mode — go directly to Step 2.
 
 In wizard mode, read `${CLAUDE_PLUGIN_ROOT}/skills/harness-start/wizard-reference.md` and follow Steps 1A–1E in order. Each step requires user confirmation before proceeding. The wizard covers: task classification & codebase scan, deliverable definition, verify instruction derivation, skill recommendation, and loop mode selection.
+
+> **Workflow template auto-selected**: `[template-name]` (based on task type: `[classification]`).
+> This template defines [brief description of steps and cycle behavior].
+> To override, restart with `--template <name>` where name is one of: review-fix-converge, implement-test-review-fix-converge, implement-verify.
 
 ## Step 1.5: Workspace Overwrite Check (STRUCTURAL GATE — MANDATORY)
 
@@ -193,13 +197,34 @@ Use `--force` whenever an existing workspace was detected in Step 1.5. Use `--lo
 
 When `--force` is used and old workspace files exist, init auto-archives them to `.claude/harness/archive/` BEFORE overwriting the state file. This is a structural safety net that works even if the agent forgets to call `archive` separately.
 
-## Step 6: Write Template Files
+## Step 6: Generate Workspace Files
 
-Copy the templates from `${CLAUDE_PLUGIN_ROOT}/templates/` and fill them completely. Every `[placeholder]` must be replaced with concrete, task-specific content.
+**If a workflow template was selected** (auto-detected in Step 1A or via `--template`):
 
-**All files must be written to `.claude/harness/` directory** — the directory was already created by init in Step 5.
+1. Read the JSON template from `templates/workflows/<template-name>.json`
+2. Fill `{{variable}}` placeholders in step `what` fields using values from Steps 1A-1C:
+   - `{{objective}}` → expanded task description from Step 1A
+   - `{{target_files}}` → affected files from Step 1A scan
+   - `{{deliverables}}` → deliverable list from Step 1B
+   - `{{verify_command}}` → verify instruction from Step 1C
+   - `{{review_scope}}` → derived from target_files + deliverables
+3. Generate playbook.md from the filled template:
+   - Each `steps[]` entry → a Step section with Type, What, Tools, Completion Criteria, Failure Handling
+   - If `cycle.enabled` is true → add Cycle Behavior section with min_cycles, max_cycles, convergence metric
+   - Add Dependency Diagram section
+4. Generate eval-criteria.md from `eval_standards[]`:
+   - Each entry → a numbered Standard table
+   - Include Validation Principles section
+   - If template has review steps → include Review Task Standards (Density, Exhaustion, Convergence, Blind Spot)
+5. Generate mission.md from wizard output + `mission_defaults`
+6. Generate progress.md (standard initialization)
+7. Write harness-state.json via `state-manager.py init` with cycle config from template:
+   - `--cycle-steps` from `cycle.steps` (if cycle.enabled)
+   - `--min-cycles` from `cycle.min_cycles`
+   - `--max-cycles` from `cycle.max_cycles`
 
-For detailed template file structure (mission.md, playbook.md, eval-criteria.md, progress.md), read `${CLAUDE_PLUGIN_ROOT}/skills/harness-start/templates-reference.md`. Key rules: every `[placeholder]` must be replaced; every deliverable must have a corresponding check; cross-module integration checks are mandatory for multi-phase tasks.
+**If no template was selected** (fallback):
+- Use the current dynamic generation process from templates-reference.md.
 
 ## Step 7: Verify Initialization
 
@@ -215,7 +240,9 @@ If any file is missing or contains `[placeholder]`, fix it before reporting read
 
 ## Step 8: Report Ready State
 
-Report to the user:
+### 8A: Workspace Summary
+
+Output the workspace summary (you may adapt wording but must include all fields):
 
 ```
 Harness workspace initialized.
@@ -233,18 +260,28 @@ Files created:
   .claude/harness/eval-criteria.md  -- <N> validation standards
   .claude/harness/progress.md       -- blank tracking log
   .claude/harness-state.json        -- state file
+```
 
-Ready to start execution.
+### 8B: MANDATORY FINAL OUTPUT — output this block VERBATIM
 
-**IMPORTANT: Start /harness-dev in a NEW session (or run /clear first).**
+**This is NOT optional.** You MUST output the following block exactly as shown (filling in `<mode>`). Do NOT summarize, paraphrase, or skip it. This is the single most important line of your output — if the user misses this, the harness will fail.
 
-Why a new session:
-- This session's context is consumed by workspace initialization (plan parsing, wizard, file writes).
-- /harness-dev reads all state from disk files — it does not depend on conversation history.
+```
+---
+
+## ⚠️ Next Steps (REQUIRED)
+
+**Run `/clear` first to free this session's context, then run `/openharness:harness-dev --mode <mode>`.**
+
+Why:
+- This session's context is consumed by workspace initialization (wizard, file writes).
+- `/harness-dev` reads all state from disk files — it does not depend on conversation history.
 - A clean session gives the full context window for actual development work.
 
-To begin: open a new Claude Code session in this project directory, then run /harness-dev --mode <single|dual>
+---
 ```
+
+**Common failure pattern**: The agent summarizes the plan and says "run /harness-dev to begin" without the `/clear` warning. This defeats the purpose — the user proceeds in the same bloated session and the harness runs out of context. The VERBATIM block above prevents this.
 
 ## Important Rules
 

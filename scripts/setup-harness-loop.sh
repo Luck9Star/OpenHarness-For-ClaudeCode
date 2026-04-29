@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Initialize OpenHarness loop state file
-# Usage: setup-harness-loop.sh <task-name> [--mode single|dual] [--verify INSTRUCTION] [--max-iterations N] [--skills SKILL1,SKILL2] [--loop-mode in-session|clean] [--force]
+# Usage: setup-harness-loop.sh <task-name> [--mode single|dual] [--verify INSTRUCTION] [--max-iterations N] [--skills SKILL1,SKILL2] [--loop-mode in-session|clean] [--template NAME] [--force]
 
 set -euo pipefail
 
@@ -20,9 +20,10 @@ CYCLE_STEPS=""
 MIN_CYCLES=""
 MAX_CYCLES=""
 FORCE=""
+TEMPLATE=""
 
 if [[ $# -lt 1 ]]; then
-  echo "Usage: setup-harness-loop.sh <task-name> [--mode single|dual] [--verify INSTRUCTION] [--max-iterations N] [--skills SKILL1,SKILL2] [--loop-mode in-session|clean] [--force]" >&2
+  echo "Usage: setup-harness-loop.sh <task-name> [--mode single|dual] [--verify INSTRUCTION] [--max-iterations N] [--skills SKILL1,SKILL2] [--loop-mode in-session|clean] [--template NAME] [--force]" >&2
   exit 1
 fi
 
@@ -32,7 +33,7 @@ shift
 # Reject flag-like task names (e.g. "--mission")
 if [[ "$TASK_NAME" == -* ]]; then
   echo "Error: task_name must not start with '-', got '$TASK_NAME'. Provide the task name as the first positional argument." >&2
-  echo "Usage: setup-harness-loop.sh <task-name> [--mode single|dual] [--verify INSTRUCTION] [--max-iterations N] [--skills SKILL1,SKILL2] [--loop-mode in-session|clean] [--force]" >&2
+  echo "Usage: setup-harness-loop.sh <task-name> [--mode single|dual] [--verify INSTRUCTION] [--max-iterations N] [--skills SKILL1,SKILL2] [--loop-mode in-session|clean] [--template NAME] [--force]" >&2
   exit 1
 fi
 
@@ -114,9 +115,17 @@ while [[ $# -gt 0 ]]; do
       FORCE="--force"
       shift
       ;;
+    --template)
+      if [[ $# -lt 2 ]]; then
+        echo "Error: --template requires an argument (template name without .json extension)" >&2
+        exit 1
+      fi
+      TEMPLATE="$2"
+      shift 2
+      ;;
     *)
       echo "Error: Unknown argument: $1" >&2
-      echo "Usage: setup-harness-loop.sh <task-name> [--mode single|dual] [--verify INSTRUCTION] [--max-iterations N] [--skills SKILL1,SKILL2] [--loop-mode in-session|clean] [--force]" >&2
+      echo "Usage: setup-harness-loop.sh <task-name> [--mode single|dual] [--verify INSTRUCTION] [--max-iterations N] [--skills SKILL1,SKILL2] [--loop-mode in-session|clean] [--template NAME] [--force]" >&2
       exit 1
       ;;
   esac
@@ -130,6 +139,39 @@ echo "Initializing OpenHarness loop state..."
 # harness-dev on an already-initialized workspace (the common case).
 if [[ -z "$FORCE" && -f ".claude/harness-state.json" ]]; then
   FORCE="--force"
+fi
+
+# ---- Template processing ----
+if [[ -n "$TEMPLATE" ]]; then
+  TEMPLATE_FILE="${PLUGIN_ROOT}/templates/workflows/${TEMPLATE}.json"
+  if [[ ! -f "$TEMPLATE_FILE" ]]; then
+    echo "Error: Template not found: $TEMPLATE_FILE" >&2
+    echo "Available templates:" >&2
+    ls "${PLUGIN_ROOT}/templates/workflows/"*.json 2>/dev/null | xargs -n1 basename | sed 's/\.json$//' >&2
+    exit 1
+  fi
+
+  # Extract cycle config from template if not already set by explicit flags
+  if [[ -z "$CYCLE_STEPS" ]]; then
+    CYCLE_STEPS_FROM_TEMPLATE=$(python3 -c "
+import json
+t = json.load(open('$TEMPLATE_FILE'))
+cycle = t.get('cycle', {})
+if cycle.get('enabled') and cycle.get('steps'):
+    print(f\"{cycle['steps'][0]},{cycle['steps'][1]}\")
+" 2>/dev/null || true)
+    if [[ -n "$CYCLE_STEPS_FROM_TEMPLATE" ]]; then
+      CYCLE_STEPS="$CYCLE_STEPS_FROM_TEMPLATE"
+    fi
+  fi
+
+  if [[ -z "$MIN_CYCLES" ]]; then
+    MIN_CYCLES=$(python3 -c "import json; print(json.load(open('$TEMPLATE_FILE')).get('cycle',{}).get('min_cycles',0))" 2>/dev/null || echo "0")
+  fi
+
+  if [[ -z "$MAX_CYCLES" ]]; then
+    MAX_CYCLES=$(python3 -c "import json; print(json.load(open('$TEMPLATE_FILE')).get('cycle',{}).get('max_cycles',0))" 2>/dev/null || echo "0")
+  fi
 fi
 
 INIT_ARGS=("$TASK_NAME" --mode "$EXECUTION_MODE")
@@ -178,6 +220,7 @@ echo "  Loop Mode:         $LOOP_MODE"
 echo "  Verify Instruction: ${VERIFY_INSTRUCTION:-(none)}"
 echo "  Skills:            ${SKILLS:-(none)}"
 echo "  Max Iterations:     ${MAX_ITERATIONS:-0 (infinite)}"
+echo "  Template:           ${TEMPLATE:-(auto-detect)}"
 echo "  State File:         $(pwd)/$STATE_FILE"
 echo ""
 echo "Ready to begin development loop."

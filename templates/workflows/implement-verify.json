@@ -1,0 +1,86 @@
+{
+  "name": "implement-verify",
+  "version": "1.0.0",
+  "description": "For quick tasks, prototypes, or non-code tasks. Linear implement→verify with no review cycle. Minimal overhead.",
+  "triggers": {
+    "task_types": ["quick", "non-code"],
+    "priority": 1
+  },
+  "steps": [
+    {
+      "name": "Implement",
+      "phase": null,
+      "type": "implement",
+      "what": "Execute {{objective}}. Produce the deliverables listed in mission.md. Follow project conventions.",
+      "tools": [
+        "Read → read existing code for context",
+        "Edit → write/modify files",
+        "Bash → run build/lint/type checks",
+        "Write → create new files if needed"
+      ],
+      "completion_criteria": {
+        "existence": [
+          "All deliverables from mission.md exist",
+          "No syntax/parse errors in output files"
+        ],
+        "quality": [
+          "Implementation matches mission objective",
+          "Follows existing project patterns"
+        ]
+      },
+      "failure_handling": "Fix errors and retry. If blocked by external dependency, log and skip.",
+      "cycle_start": false,
+      "cycle_end": false
+    },
+    {
+      "name": "Verify",
+      "phase": null,
+      "type": "verify",
+      "what": "Spawn harness-eval-agent for independent validation. Check deliverables exist, are non-trivial, and meet mission done definition.",
+      "tools": [
+        "Bash → run {{verify_command}}",
+        "Read → verify deliverable content"
+      ],
+      "completion_criteria": {
+        "existence": [
+          "Eval report produced"
+        ],
+        "quality": [
+          "All numbered standards pass",
+          "No regressions detected"
+        ]
+      },
+      "failure_handling": "If eval fails, feed details to agent for retry. Circuit breaker at 3 consecutive failures.",
+      "cycle_start": false,
+      "cycle_end": false
+    }
+  ],
+  "cycle": {
+    "enabled": false,
+    "steps": null,
+    "min_cycles": 0,
+    "max_cycles": 0,
+    "convergence_metric": null
+  },
+  "eval_standards": [
+    {
+      "name": "Deliverable Check",
+      "check": "All deliverables from mission.md exist with correct structure",
+      "method": "For each deliverable in mission.md Output Definition, verify file/path exists and is non-trivial.",
+      "pass_condition": "Every listed deliverable exists, is non-empty, and matches expected format.",
+      "on_fail": "Return to Implement step to create missing deliverables"
+    },
+    {
+      "name": "Functional Correctness",
+      "check": "Output passes verification",
+      "method": "Run {{verify_command}} and check exit code.",
+      "pass_condition": "Exit code 0 or all manual checks pass.",
+      "on_fail": "Return to Implement step to fix issues"
+    }
+  ],
+  "mission_defaults": {
+    "execution_mode": "single",
+    "max_iterations": 0,
+    "verify_command": "echo 'Specify verify command via --verify flag'"
+  }
+}

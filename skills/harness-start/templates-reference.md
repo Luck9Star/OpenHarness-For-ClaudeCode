@@ -5,6 +5,42 @@ Read this when generating `.claude/harness/` files in Step 5.
 
 ---
 
+## Workflow Templates (JSON Authority)
+
+When a workflow template is selected (via `--template` flag or auto-detection from Step 1A classification), the playbook and eval-criteria are generated from JSON definitions in `templates/workflows/`.
+
+### Auto-Selection Rules
+
+The wizard Step 1A task classification maps to templates:
+
+| Classification | Template | Cycle? |
+|---|---|---|
+| `review`, `audit` | `review-fix-converge` | Yes (steps 1-3) |
+| `feature`, `refactor` | `implement-test-review-fix-converge` | Yes (steps 3-5) |
+| `quick`, `non-code` | `implement-verify` | No |
+| Fallback | `implement-verify` | No |
+
+### Template Variables
+
+JSON step `what` fields contain `{{variable}}` placeholders filled from wizard output:
+
+| Variable | Source | Example |
+|----------|--------|---------|
+| `{{objective}}` | Step 1A expanded task description | "Implement user authentication" |
+| `{{target_files}}` | Step 1A codebase scan result | "src/auth/*.py" |
+| `{{deliverables}}` | Step 1B deliverable list | "auth module, login endpoint, tests" |
+| `{{verify_command}}` | Step 1C verify instruction | "pytest tests/" |
+| `{{review_scope}}` | Derived from target_files + deliverables | "src/auth/ and tests/auth/" |
+
+### JSON → Markdown Generation
+
+When generating workspace files from a template:
+
+1. **playbook.md**: Render each `steps[]` entry as a Step section with Type, What, Tools, Completion Criteria, Failure Handling. Add Cycle Behavior section if `cycle.enabled` is true.
+2. **eval-criteria.md**: Render each `eval_standards[]` entry as a numbered Standard. Include Validation Principles section. Add Review Task Standards if template has review steps.
+3. **mission.md**: Use wizard output + `mission_defaults` from template. Same structure as current template.
+4. **progress.md**: Standard initialization, same as current template.
+
 ## .claude/harness/mission.md
 
 Fill based on the task description (use the expanded version from Step 1A if wizard was used):
