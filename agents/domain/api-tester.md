@@ -95,3 +95,5 @@ When spawned for a harness step, produce:
 4. **Performance Metrics** — response times, throughput, error rates
 5. **Security Findings** — vulnerabilities found with severity and remediation
 6. **Release Recommendation** — Go/No-Go with supporting data
+
+**Agent-spawn router JSON format**: If dispatched via the OpenHarness agent-spawn router, output in JSON format matching the review_report.json schema: `{verdict, summary, findings: [{id, severity, file, description, suggestion}], density_check: {loc_reviewed, findings_count}}`

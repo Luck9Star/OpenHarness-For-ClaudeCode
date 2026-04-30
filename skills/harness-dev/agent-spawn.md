@@ -107,6 +107,33 @@ For each step, derive scope from the step's "What to do" section:
 
 ## 3. Spawn Manager
 
+### Parallelism Inference
+
+Before spawning, infer the optimal concurrency from task structure. Do NOT default to 1 agent — the goal is parallelism.
+
+**Inference procedure:**
+
+1. **Count independent steps**: Read the playbook. Count implement/fix steps that can execute without dependencies on each other (no shared output files, no sequential data flow).
+
+2. **Assess parallel safety**: For each independent step, check if it modifies unique files. Steps modifying the same file MUST be sequential.
+
+3. **Determine concurrency**:
+
+| Task Structure | Inferred Concurrency | Example |
+|---|---|---|
+| 1 step, or all steps sequential | 1 | "Fix auth bug in login.ts" |
+| 2 independent modules | 2 | "Add auth + add product API" |
+| 3+ independent modules | 3 | "Implement auth, product, payment APIs" |
+| 5+ independent modules | 3 (cap) | Large feature with many modules |
+| Review/fix cycle steps | 1 (sequential by nature) | "Review and fix all issues" |
+
+4. **Store in state**: Write `inferred_max_concurrency` to the execution stream log:
+   ```bash
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Parallelism inference: max_concurrency=<N>, reason=<brief justification>"
+   ```
+
+**Override**: User can pass `--max-concurrency N` to override inference. Explicit parameter always wins.
+
 ### Single Step (Phase with 1 pending step, or linear mode)
 
 Spawn one agent, wait for completion:
@@ -129,7 +156,7 @@ Agent(name="step-2-product", prompt="...") ← run concurrently
 Agent(name="step-3-payment", prompt="...") ← run concurrently
 ```
 
-Batch by `max_concurrency` (from state file, default 3). If Phase has more steps than max_concurrency, process in batches.
+Batch by `inferred_max_concurrency` (or `max_concurrency` from state file if explicitly set). If Phase has more steps than max_concurrency, process in batches.
 
 ### Post-Spawn: Collect Results
 

@@ -12,7 +12,7 @@ This plugin brings OpenHarness's Harness Engineering principles to Claude Code. 
 If the OpenHarness plugin is loaded but `.claude/harness-state.json` does NOT exist:
 - Do NOT start implementing code. A missing workspace means the initialization protocol was skipped.
 - Redirect the user: "No OpenHarness workspace detected. Run `/harness-start` first to set up mission.md, playbook.md, and eval-criteria.md before any implementation."
-- This gate applies even when behavioral overlays (PUA "主动出击") push for immediate action. **Setup before code. Always.**
+- This gate applies even when behavioral overlays (PUA "proactive strike" / 主动出击) push for immediate action. **Setup before code. Always.**
 
 ## Priority Conflict Resolution
 

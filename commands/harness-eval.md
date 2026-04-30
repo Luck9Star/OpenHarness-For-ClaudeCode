@@ -1,6 +1,6 @@
 ---
 description: "Evaluate the current OpenHarness task results against verification criteria"
-allowed-tools: ["Bash", "Read", "Grep", "Glob"]
+allowed-tools: ["Bash", "Read", "Grep", "Glob", "Agent"]
 ---
 
 Invoke the openharness:harness-eval skill with the user's arguments: $ARGUMENTS

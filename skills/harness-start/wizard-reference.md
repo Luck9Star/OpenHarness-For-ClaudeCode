@@ -1,11 +1,9 @@
 # Wizard Reference — Steps 1A through 1E
 
-This file contains the detailed wizard sub-steps for harness-start.
-Read this file when in wizard mode (missing critical parameters).
+This file contains the detailed sub-steps for harness-start task analysis.
+Read this when you need to perform task classification, deliverable definition, or skill inference.
 
-Each step requires user confirmation before proceeding to the next.
-
-**Context constraint**: Even in wizard mode, minimize file reading. Read ONLY what is needed to classify the task and ask the user good questions. Do NOT read source code to "understand the implementation" — that happens during `/harness-dev`. Limit yourself to: config files (`package.json`, `Cargo.toml`, etc.), directory listings, and test file names (not contents).
+**Context constraint**: Minimize file reading. Read ONLY what is needed to classify the task. Do NOT read source code to "understand the implementation" — that happens during `/harness-dev`. Limit yourself to: config files (`package.json`, `Cargo.toml`, etc.), directory listings, and test file names (not contents).
 
 ---
 
@@ -56,21 +54,8 @@ After any level of scan, expand the user's task description with the gathered co
 - Clarify ambiguous terms using project context
 - Add implementation constraints (follow existing patterns, match conventions)
 
-Present the expanded task description to the user:
-
-```
-Based on [project analysis / file review / your description], here's the expanded task:
-
-[Expanded description with concrete scope, affected modules, and constraints]
-
-Affected areas:
-- [module/file 1]: [what changes here]
-- [module/file 2]: [what changes here]
-
-Does this look correct? Any adjustments?
-```
-
-Wait for user confirmation. Incorporate any feedback before proceeding.
+In `--quick` mode: silently expand and proceed.
+In standard mode: present the expanded task description for user confirmation before proceeding.
 
 ## Step 1B: Define Deliverables
 
@@ -91,70 +76,67 @@ Each deliverable must be:
 - Tied to a specific module/area from Step 1A
 - Independently verifiable
 
-Wait for user confirmation.
+In `--quick` mode: silently define deliverables and proceed.
+In standard mode: present deliverables for user confirmation.
 
-## Step 1C: Derive Verify Instruction
+## Step 1C: Verify Instruction Inference (Automated)
 
-Generate a `--verify` instruction from the deliverables. The instruction must be:
+Generate a `--verify` instruction from the deliverables and project context. No user interaction needed.
+
+**Inference procedure:**
+
+1. **Detect verification tools**: Check project for test runner config (package.json scripts, Makefile targets, pyproject.toml, pytest.ini, etc.)
+2. **Map deliverables to checks**: For each deliverable from Step 1B, generate one machine-verifiable check
+3. **Generate instruction**: Combine into a natural language instruction
+
+The instruction must be:
 - **Quantified**: use numbers, not "thorough" or "complete"
 - **Machine-verifiable**: eval-agent can check each condition by running commands or reading files
 - **Cover all deliverables**: one check per deliverable minimum
 
-```
-Based on the deliverables, here's the proposed verify instruction:
+**User override**: If the user passed `--verify`, use their instruction instead. Do not re-derive.
 
---verify "
-1. [Check for deliverable 1 — e.g., "auth middleware file exists and exports correct functions"]
-2. [Check for deliverable 2 — e.g., "all unit tests pass (npm test)"]
-3. [Check for deliverable 3 — e.g., "protected routes return 401 without valid token"]
-"
+## Step 1D: Skill Inference (Automated)
 
-Each check maps directly to a deliverable. Want to adjust any checks?
-```
+Infer applicable skills from the task description and available skill catalog. No user interaction needed.
 
-If the user already provided `--verify`, present the derived version alongside and ask which they prefer.
+**Inference procedure:**
 
-Wait for user confirmation. Use the final confirmed verify instruction.
+1. **Scan available skills**:
+   ```
+   Glob: ${CLAUDE_PLUGIN_ROOT}/skills/*/SKILL.md
+   ```
 
-## Step 1D: Recommend Skills
+2. **For each skill**, read the YAML frontmatter `description` field only (do NOT read full SKILL.md content — that happens during harness-dev execution).
 
-Based on the tech stack detected in Step 1A and the deliverables, recommend skills:
+3. **Match against task**: Compare task description + deliverables + tech stack (from Step 1A) against each skill's description. A skill is relevant when:
+   - Its description mentions technologies/patterns used in the task
+   - Its domain overlaps with the task's scope
+   - It provides verification or quality checks the task would benefit from
 
-```
-Based on the tech stack and task type, these skills may help:
+4. **Include/exclude**:
+   - Include: skills with clear relevance (>= 2 keyword/concept matches)
+   - Exclude: skills with no overlap
+   - Borderline: include — skills are lightweight and harmless to load
 
-Recommended:
-- [skill-name]: [reason — e.g., "project uses React, skill provides component patterns"]
+5. **Store result**: Write the selected skill names as a comma-separated list for the state file's `--skills` field.
 
-Optional:
-- [skill-name]: [reason — e.g., "task involves API design, skill provides REST patterns"]
+**Example inference:**
+- Task: "Add JWT authentication to Express API"
+- Available skills: harness-core, harness-dev, harness-start, harness-eval, harness-status, harness-dream, harness-edit
+- Inference: No domain-specific skills match. Store empty list.
+- If a skill `api-security` existed with description "REST API security patterns, JWT, OAuth": it would be included.
 
-Skip:
-- [skill-name]: [reason — e.g., "no database changes needed"]
+**User override**: If the user passed `--skills`, use their list instead of inference. Validate against available skills and warn about invalid names.
 
-Use recommended skills? Or adjust the list?
-```
+## Step 1E: Loop Mode Inference (Automated)
 
-If the user already specified `--skills`, validate them against the tech stack and note any gaps.
+Infer loop mode from task complexity. No user interaction needed.
 
-Wait for user confirmation. Use the final confirmed skill list.
+| Task Structure | Inferred loop_mode | Reasoning |
+|---|---|---|
+| <= 3 steps | `in-session` | Short missions, context accumulation is harmless |
+| 4-6 steps | `in-session` | Medium missions, still manageable |
+| 7+ steps or review cycles | `clean` | Long missions, stale context risk is real |
 
-## Step 1E: Loop Mode Selection
-
-Ask the user how each iteration should handle context:
-
-```
-How should each loop iteration handle conversation context?
-
-- "continuous" (default) — Same session throughout. Faster iteration, context accumulates. Agent is instructed to ignore stale context. Good for short missions or tasks where context carry-over is helpful.
-- "clean" — Same session, but auto-compress context between iterations (via /compact). Prevents stale context from misleading the agent at the cost of one extra step per iteration. Good for long missions with many steps.
-
-Which mode?
-```
-
-**Guidelines:**
-- If the task has <= 3 steps, default to "continuous" and skip this question — inform the user.
-- If the task has 4+ steps OR involves review/audit cycles, ask this question explicitly.
-- Store the answer as `loop_mode`: "in-session" for continuous, "clean" for auto-compressed.
-
-Wait for user confirmation.
+Store the answer as `loop_mode`: "in-session" for continuous, "clean" for auto-compressed.

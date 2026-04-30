@@ -39,7 +39,7 @@ Render the following information:
 | Total Executions | _(from state file)_ |
 | Consecutive Failures | _(from state file)_ |
 | Circuit Breaker | _(from state file)_ |
-| Verify Command | _(from state file)_ |
+| Verify Instruction | _(from state file)_ |
 | Last Execution | _(from state file)_ |
 
 ### Completion Progress

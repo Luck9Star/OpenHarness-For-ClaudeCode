@@ -1,10 +1,12 @@
 # Eval Criteria | Validation Standards
 
+> **NOTE**: Sections marked with [INSTRUCTION] are guidance for the LLM generating workspace eval-criteria.md. They should NOT appear in the generated output file.
+
 > Validation must be externalized — the agent cannot self-certify completion.
 > Each standard must be machine-checkable.
 > **Process compliance does not equal quality.** Existence checks alone are insufficient.
 
-## Validation Principles
+## [INSTRUCTION] Validation Principles
 
 1. **Executor != Validator**: The agent executing the task must not also validate the result.
 2. **Machine-checkable**: No subjective "looks good" judgments.
@@ -41,7 +43,7 @@
 | Pass Condition | `[e.g., HTTP 200 with valid response]` |
 | On Fail | `[e.g., Restart service, retry up to 3 times]` |
 
-## Review Task Standards (MANDATORY for review-type tasks)
+## [INSTRUCTION] Review Task Standards (MANDATORY for review-type tasks)
 
 > When the mission involves code review, architecture review, or security audit,
 > the following additional standards are REQUIRED. Omit only for pure implementation tasks.
@@ -70,7 +72,7 @@
 |---|---|
 | Check | `Finding reduction is genuine, not due to shallow review` |
 | Method | `Compare finding counts across iterations. If total findings decreased > 50% from prior iteration, check for proof section.` |
-| Pass Condition | `(a) No new P0 findings introduced. (b) New P1 findings <= P1 findings resolved. (c) If findings decreased > 50%, review includes an explicit section explaining: which areas were genuinely clean (with evidence), what was checked that found nothing (exhaustion log), acknowledgment of potential blind spots.` |
+| Pass Condition | `(a) No unresolved P0 findings. (b) No unresolved P1 findings. (c) All user-specified convergence dimensions resolved to 0. (d) If findings decreased > 50%, review includes an explicit section explaining: which areas were genuinely clean (with evidence), what was checked that found nothing (exhaustion log), acknowledgment of potential blind spots.` |
 | On Fail | `Re-dispatch with instruction to verify whether reduction is genuine or due to insufficient depth` |
 
 > **IMPORTANT: For review-cycle tasks (playbook has `cycle_steps`), convergence MUST be included as a numbered Standard (e.g., Standard N+1), NOT just as this guideline section.** The eval-agent only checks numbered standards for PASS/FAIL. Without a numbered convergence check, the loop will exit after the first cycle where all other criteria pass — regardless of whether review depth was maintained. |

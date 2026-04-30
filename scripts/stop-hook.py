@@ -13,31 +13,12 @@ import sys
 import json
 import os
 import re
+import shutil
+from pathlib import Path
 
-STATE_FILE = ".claude/harness-state.json"
-
-
-def read_state(cwd):
-    """Read JSON state file."""
-    path = os.path.join(cwd, STATE_FILE)
-    if not os.path.exists(path):
-        return None
-    try:
-        with open(path) as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError) as e:
-        print(f"OpenHarness stop-hook: State file parse error: {e}. Allowing exit.", file=sys.stderr)
-        return None
-
-
-def _write_state(cwd, state):
-    """Write state file atomically (temp + rename)."""
-    path = os.path.join(cwd, STATE_FILE)
-    tmp = path + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(state, f, indent=2)
-        f.write("\n")
-    os.replace(tmp, path)
+# Import shared utilities from harness_utils (same directory)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from harness_utils import find_state_file, read_state, write_state
 
 
 def find_loop_done(transcript_path):
@@ -48,6 +29,9 @@ def find_loop_done(transcript_path):
 
     try:
         with open(transcript_path) as f:
+            f.seek(0, 2)
+            size = f.tell()
+            f.seek(max(0, size - 65536))
             content = f.read()
     except OSError as e:
         print(f"OpenHarness stop-hook: Cannot read transcript: {e}. Allowing exit.", file=sys.stderr)
@@ -92,11 +76,9 @@ def main():
     except json.JSONDecodeError:
         sys.exit(0)
 
-    cwd = os.getcwd()
-
     # Read state
-    state = read_state(cwd)
-    if state is None:
+    state = read_state()
+    if not state:
         sys.exit(0)
 
     # Extract fields with safe defaults
@@ -130,7 +112,7 @@ def main():
         # First stop-hook call: claim this session as the harness owner
         state["session_id"] = hook_session
         state_session = hook_session
-        _write_state(cwd, state)
+        write_state(state)
     elif state_session and hook_session and state_session != hook_session:
         # Different session (sub-agent) — allow exit immediately
         sys.exit(0)
@@ -139,19 +121,46 @@ def main():
 
     # Helper: archive workspace before removing state file on terminal exit
     def _archive_and_remove():
-        plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT", "")
-        script = os.path.join(plugin_root, "scripts", "state-manager.py") if plugin_root else ""
-        if not script or not os.path.exists(script):
-            # Fallback: check CWD (works during plugin development)
-            script = os.path.join(cwd, "scripts", "state-manager.py")
-        if os.path.exists(script):
-            import subprocess
-            subprocess.run(["python3", script, "archive"], cwd=cwd,
-                           capture_output=True, timeout=10)
-        try:
-            os.remove(os.path.join(cwd, STATE_FILE))
-        except OSError:
-            pass
+        """Archive workspace files and remove state file using Python directly (no subprocess)."""
+        state_path = find_state_file()
+        if not state_path:
+            return
+
+        # Read state to get task_name for archive directory naming
+        existing = read_state(state_path)
+        task_name = existing.get("task_name", "untitled") if existing else "untitled"
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        archive_dir = Path.cwd() / ".claude/harness/archive" / f"{task_name}-{timestamp}"
+
+        harness_dir = Path.cwd() / ".claude/harness"
+        files_to_archive = ["mission.md", "playbook.md", "eval-criteria.md", "progress.md"]
+
+        archived = []
+        for f in files_to_archive:
+            src = harness_dir / f
+            if src.exists():
+                archive_dir.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(src), str(archive_dir / f))
+                archived.append(f)
+
+        logs_src = harness_dir / "logs"
+        if logs_src.exists() and any(logs_src.iterdir()):
+            archive_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(str(logs_src), str(archive_dir / "logs"))
+            archived.append("logs/")
+
+        if archived and state_path.exists():
+            archive_dir.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(state_path), str(archive_dir / "harness-state.json"))
+            archived.append("harness-state.json")
+
+        # Remove state file if it still exists (e.g., nothing was archived)
+        if state_path.exists():
+            try:
+                os.remove(str(state_path))
+            except OSError:
+                pass
 
     # Circuit breaker tripped (defense-in-depth: both breaker and status are checked,
     # but only breaker is the authoritative exit signal — status:"failed" is transient
@@ -181,7 +190,7 @@ def main():
     # Stuck detection: status 'running' from previous crash — auto-recover
     if status == "running":
         state["status"] = "idle"
-        _write_state(cwd, state)
+        write_state(state)
         print("OpenHarness: Detected stale 'running' status — recovered to idle", file=sys.stderr)
         status = "idle"
 
@@ -203,48 +212,41 @@ def main():
 
     # Increment iteration counter
     state["iteration"] = next_iteration
-    _write_state(cwd, state)
+    write_state(state)
 
     # Lightweight cleanup: remove temp files to prevent accumulation
     try:
         import glob as _glob
-        harness_dir = os.path.join(cwd, ".claude", "harness")
-        for pattern in ["*.tmp", "*.bak", "*.swp"]:
-            for f in _glob.glob(os.path.join(harness_dir, "**", pattern), recursive=True):
-                try:
-                    os.remove(f)
-                except OSError:
-                    pass
+        state_file = find_state_file()
+        if state_file:
+            harness_dir = str(state_file.parent / "harness")
+            for pattern in ["*.tmp", "*.bak", "*.swp"]:
+                for f in _glob.glob(os.path.join(harness_dir, "**", pattern), recursive=True):
+                    try:
+                        os.remove(f)
+                    except OSError:
+                        pass
     except Exception:
         pass  # cleanup is best-effort, never block the loop
+
+    # Shared continuation instructions (compressed)
+    _continuation_common = (
+        "Read current state files for context. "
+        "Continue the current step per SKILL protocol. "
+        "After completing the step and running validation, end your turn — the loop will continue automatically."
+    )
 
     # Build continuation prompt — explicitly instruct agent to ignore prior context
     # to prevent stale "completed" signals from earlier iterations
     if loop_mode == "clean":
-        # Clean mode: force /compact to reset context before next iteration
         continuation_prompt = (
             "IMPORTANT: Run /compact FIRST to clear stale context from previous iterations.\n"
-            "After /compact completes, read these files FRESH:\n"
-            "1. .claude/harness-state.json — current step, status, iteration number\n"
-            "2. .claude/harness/mission.md — mission contract\n"
-            "3. .claude/harness/playbook.md — step definitions\n"
-            "4. .claude/harness/eval-criteria.md — validation standards\n"
-            "5. .claude/harness/logs/execution_stream.log — ONLY the last 20 lines for recent history\n\n"
-            "Execute the NEXT playbook step indicated by the state file (only ONE step). "
-            "After completing the step and running validation, end your turn — the loop will continue automatically."
+            + _continuation_common
         )
     else:
-        # In-session mode: rely on context hygiene instructions (no /compact)
         continuation_prompt = (
-            "IMPORTANT: Ignore ALL prior conversation context — it may contain stale information from previous iterations.\n"
-            "Read these files FRESH to determine current state:\n"
-            "1. .claude/harness-state.json — current step, status, iteration number\n"
-            "2. .claude/harness/mission.md — mission contract\n"
-            "3. .claude/harness/playbook.md — step definitions\n"
-            "4. .claude/harness/eval-criteria.md — validation standards\n"
-            "5. .claude/harness/logs/execution_stream.log — ONLY the last 20 lines for recent history\n\n"
-            "Execute the NEXT playbook step indicated by the state file (only ONE step). "
-            "After completing the step and running validation, end your turn — the loop will continue automatically."
+            "IMPORTANT: Ignore ALL prior conversation context — it may contain stale information from previous iterations. "
+            + _continuation_common
         )
 
     system_msg = (

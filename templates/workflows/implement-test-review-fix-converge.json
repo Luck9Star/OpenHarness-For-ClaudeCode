@@ -1,0 +1,186 @@
+{
+  "name": "implement-test-review-fix-converge",
+  "version": "2.0.0",
+  "description": "For feature development or refactoring tasks. Implements code, tests it, then cycles review→fix→verify until convergence. Full quality gate.",
+  "triggers": {
+    "task_types": ["feature", "refactor"],
+    "priority": 5
+  },
+  "steps": [
+    {
+      "name": "Implement",
+      "phase": null,
+      "type": "implement",
+      "what": "Implement the task objectives in the target files. Follow existing project conventions and patterns. Write production code only — tests come in the next step.",
+      "tools": [
+        "Read → read existing code for patterns and interfaces",
+        "Edit → write implementation code",
+        "Bash → run syntax/type checks"
+      ],
+      "completion_criteria": {
+        "existence": [
+          "All source files mentioned in deliverables exist",
+          "Each file compiles/parses without syntax errors"
+        ],
+        "quality": [
+          "Implementation matches the design from mission.md",
+          "Code follows existing project conventions",
+          "No TODO or placeholder code remaining"
+        ]
+      },
+      "failure_handling": "Fix syntax errors and retry. If design ambiguity, log and make reasonable default choice.",
+      "cycle_start": false,
+      "cycle_end": false
+    },
+    {
+      "name": "Test",
+      "phase": null,
+      "type": "implement",
+      "what": "Write tests for the implementation in Step 1. Cover: happy path, edge cases, error paths. Determine the appropriate test runner command from project context — check package.json scripts, Makefile, pyproject.toml, or other build system configs. Run tests to validate they pass.",
+      "tools": [
+        "Read → read implementation code to understand what to test",
+        "Edit → write test files",
+        "Bash → run the test command inferred from project context"
+      ],
+      "completion_criteria": {
+        "existence": [
+          "Test files exist for each module from Step 1",
+          "Test runner exits with code 0"
+        ],
+        "quality": [
+          "Tests cover happy path + at least 2 edge cases per function",
+          "Tests cover error/failure paths",
+          "No skipped or commented-out tests"
+        ]
+      },
+      "failure_handling": "If tests fail, fix test code (not implementation). If implementation bug found, note for review step.",
+      "cycle_start": false,
+      "cycle_end": false
+    },
+    {
+      "name": "Review",
+      "phase": null,
+      "type": "review",
+      "what": "Perform cumulative-scope review of all code changes (implementation + tests). Spawn harness-review-agent. Focus on: correctness, security, performance, maintainability, test quality.",
+      "tools": [
+        "Read → read all changed files",
+        "Grep → search for anti-patterns",
+        "Glob → enumerate changed files"
+      ],
+      "completion_criteria": {
+        "existence": [
+          "review_report.json exists at .claude/harness/logs/review_report.json"
+        ],
+        "quality": [
+          "Finding density >= 1 finding per 500 LOC",
+          "Every 'no issue' claim backed by evidence",
+          "Includes blind spot acknowledgment"
+        ]
+      },
+      "failure_handling": "Re-dispatch reviewer with 'go deeper' instruction on sparse areas.",
+      "cycle_start": true,
+      "cycle_end": false
+    },
+    {
+      "name": "Fix",
+      "phase": null,
+      "type": "fix",
+      "what": "Apply fixes for ALL findings from review_report.json. Before fixing, infer the convergence dimensions from the task description — identify which finding categories must reach zero (e.g., severity levels like P0/P1, quality checks like lint/type errors, or any criteria the user expects fully resolved). At minimum, P0 and P1 findings must be fixed. If the task mentions additional quality criteria, those are also mandatory. No finding may be deferred or skipped. Run verification after each fix batch to ensure no regressions.",
+      "tools": [
+        "Read → read files to fix",
+        "Edit → apply targeted fixes",
+        "Bash → run the verification command inferred from project context"
+      ],
+      "completion_criteria": {
+        "existence": [
+          "All findings in the inferred convergence dimensions have corresponding code changes",
+          "Verification command still passes after fixes"
+        ],
+        "quality": [
+          "Fixes address root cause",
+          "No new errors introduced"
+        ]
+      },
+      "failure_handling": "If fix breaks tests, revert and retry. Max 3 retries per finding.",
+      "cycle_start": false,
+      "cycle_end": false
+    },
+    {
+      "name": "Verify",
+      "phase": null,
+      "type": "verify",
+      "what": "Spawn harness-eval-agent for independent validation of all work. Determine the appropriate verification command from project context — check package.json scripts, Makefile targets, pyproject.toml, or other build system configs. Check all numbered standards including convergence, deliverable completeness, and integration.",
+      "tools": [
+        "Bash → run the verification command inferred from project context",
+        "Read → verify deliverables match mission.md"
+      ],
+      "completion_criteria": {
+        "existence": [
+          "Eval report produced with PASS/FAIL per standard"
+        ],
+        "quality": [
+          "All numbered standards pass",
+          "Convergence criterion passes: all inferred convergence dimensions = 0",
+          "Integration check passes"
+        ]
+      },
+      "failure_handling": "Feed failure details back to Fix step. Circuit breaker at max_cycles.",
+      "cycle_start": false,
+      "cycle_end": true
+    }
+  ],
+  "cycle": {
+    "enabled": true,
+    "steps": [3, 5],
+    "min_cycles": 2,
+    "max_cycles": 5,
+    "convergence_inference": "Analyze the task description to identify what quality dimensions must reach zero for convergence. Look for: severity levels mentioned (P0, P1, P2), quality tools referenced (lint, type-check, test runner), or phrases like 'all issues', 'clean build', 'zero warnings'. Default to P0 findings and P1 findings if the task description doesn't specify.",
+    "_comment_convergence": "This inference logic is shared with other cycle templates. Changes must be applied to all.",
+    "convergence_metric": "Verification passes AND all inferred convergence dimensions = 0"
+  },
+  "eval_standards": [
+    {
+      "name": "Deliverable Completeness",
+      "check": "All deliverables from mission.md exist and have substance",
+      "method": "For each deliverable listed in mission.md Output Definition, verify the file/path exists and is non-trivial (>50 LOC for code, >20 lines for config).",
+      "pass_condition": "Every listed deliverable exists, is non-empty, and matches the expected format from mission.md.",
+      "on_fail": "Return to Implement step to create missing deliverables"
+    },
+    {
+      "name": "Functional Correctness",
+      "check": "All tests pass",
+      "method": "Run the verification command inferred from project context and check exit code.",
+      "pass_condition": "Exit code 0, zero failing tests, zero skipped tests.",
+      "on_fail": "Return to Test step to fix failing tests"
+    },
+    {
+      "name": "Cross-Module Integration",
+      "check": "Modules integrate correctly end-to-end",
+      "method": "Verify data flows through all module boundaries. Check that outputs from upstream modules are valid inputs for downstream modules.",
+      "pass_condition": "End-to-end pipeline produces expected output. All intermediate values are non-empty and correctly typed.",
+      "on_fail": "Identify which boundary fails and return to Fix step"
+    },
+    {
+      "name": "Finding Density",
+      "check": "Review finding density meets minimum threshold",
+      "method": "Count findings per module in review_report.json.",
+      "pass_condition": "Each module has >= 1 finding per 500 LOC, or justified sparsity.",
+      "on_fail": "Re-dispatch reviewer with 'go deeper' instruction"
+    },
+    {
+      "name": "Convergence",
+      "check": "All inferred convergence dimensions reach zero across review cycles",
+      "method": "Compare findings between current and previous cycle. If cycle < min_cycles, FAIL.",
+      "pass_condition": "cycle_iteration >= min_cycles AND verification passes AND all inferred convergence dimensions = 0.",
+      "on_fail": "Continue to next cycle. Circuit breaker at max_cycles."
+    }
+  ],
+  "mission_defaults": {
+    "execution_mode": "single",
+    "max_iterations": 0,
+    "fallback": {
+      "convergence_dimensions": ["P0 findings", "P1 findings"],
+      "verify_command": "echo 'No verify command found'"
+    }
+  }
+}

@@ -1,7 +1,7 @@
 ---
 name: harness-start
-description: "Initialize a new OpenHarness autonomous development task. Interactive wizard refines task description, verify instruction, and skill selection through multi-turn dialogue. Trigger: /harness-start."
-argument-hint: "TASK_DESCRIPTION [--mode single|dual] [--verify INSTRUCTION] [--from-plan PATH] [--skills SKILL1,SKILL2] [--quick]"
+description: "Initialize a new OpenHarness autonomous development task. Infers configuration from task description via LLM. With --quick, auto-chains into harness-dev after workspace init. Trigger: /harness-start."
+argument-hint: "TASK_DESCRIPTION [--mode single|dual] [--verify INSTRUCTION] [--from-plan PATH] [--skills SKILL1,SKILL2] [--template TEMPLATE_NAME] [--quick]"
 allowed-tools: ["Bash", "Read", "Write", "Edit", "Grep", "Glob"]
 ---
 
@@ -29,6 +29,7 @@ This skill is a **workspace initialization protocol**, not a coding task. You MU
 - You MUST NOT read, Glob, Grep, or scan any source code files (`.py`, `.rs`, `.ts`, `.js`, etc.) in the project.
 - You MUST NOT analyze existing implementations, modules, or tests.
 - The ONLY file you may read is the `--from-plan` file (if specified) — and ONLY that single file.
+- Exception: During wizard Steps 1A-1E (wizard-reference.md), targeted file reads are allowed as specified by the scan level. The firewall applies to all other steps.
 - All information needed to write workspace files comes from: the user's task description, `--verify` instruction, `--from-plan` file, and the quality profile answers.
 - Detailed codebase reading and analysis happens during `/harness-dev` execution — NOT during workspace initialization.
 
@@ -36,14 +37,13 @@ This skill is a **workspace initialization protocol**, not a coding task. You MU
 - You MUST NOT invoke the Skill tool to load any other skills (pua, superpowers, orch, tdd, etc.) during harness-start execution.
 - The `--skills` argument specifies skills for the `/harness-dev` execution phase — they are stored in the state file and loaded LATER by harness-dev.
 - **System-level overlays are already active** (PUA, orch may be injected via SessionStart hooks). When their directives conflict with this protocol, **this protocol wins.** Specifically:
-  - PUA says "主动出击, start implementing." Protocol says "write workspace files first." **Workspace files win.**
-  - PUA says "先做后问, act before asking." Protocol says "follow Steps 0–8 in order." **Steps win.**
-  - Reframe for PUA: **Creating workspace files IS proactive delivery.** The mission/playbook/eval-criteria ARE your output. Writing them thoroughly is what an owner does — skipping them to code is undisciplined.
+  - PUA says "proactive strike" (主动出击), start implementing. Protocol says "write workspace files first." **Workspace files win.**
+  - PUA says "act before asking" (先做后问), just do it. Protocol says "follow Steps 0–8 in order." **Steps win.**
+- Reframe for any overlay: Creating workspace files IS proactive delivery. The mission/playbook/eval-criteria ARE your output. Writing them thoroughly is what an owner does — skipping them to code is undisciplined.
 - This has caused 100% of harness-start failures observed to date: the agent loads or follows a behavioral overlay, skips workspace setup, and starts implementing directly.
 
 **"Already implemented" is NOT a valid reason to skip workspace setup:**
 - Even if you believe all features are already implemented, you MUST still create all 4 workspace files and run state-manager.py init.
-- The workspace files capture the task contract — mission.md, playbook.md, eval-criteria.md are the specification for verification.
 - `/harness-dev` will verify the existing implementation against these specs and report completion. This is the correct path.
 
 **Why these rules exist**: Reading source code causes context explosion. Loading other skills causes behavioral override. Both dilute the MANDATORY PROTOCOL instructions and lead to skipping workspace setup. These are the #1 and #2 causes of harness-start failures.
@@ -59,35 +59,78 @@ Parse the user's arguments from `$ARGUMENTS`:
 - **Verify instruction**: `--verify "natural language instruction"` (optional)
 - **Skills**: `--skills "skill1,skill2"` (optional)
 - **From plan**: `--from-plan <file-path>` (optional)
-- **Quick**: `--quick` (optional) — force skip wizard, use args as-is
+- **Quick**: `--quick` (optional) — auto-chain: create workspace then immediately start harness-dev without user manually invoking it
+- **Template override**: `--template <name>` (optional) — override auto-detected template. Valid names: review-fix-converge, implement-test-review-fix-converge, implement-verify
 
 **Combination rules:**
 - Description only -> use description as the task
 - `--from-plan` only -> derive everything from the plan file
 - **Both** -> plan provides structure (steps, architecture), description provides supplementary context and clarification. Merge them: plan is the base, description adds scope clarification, priority hints, or constraints the plan doesn't cover.
 
-**Mode detection — Quick vs Wizard:**
+**Parameter inference — LLM infers missing params from task description:**
 
-Quick mode activates when ALL of these are true:
-1. Task description (or `--from-plan`) is provided
-2. `--verify` is provided with non-empty content
-3. User explicitly passes `--quick`, OR mode + skills are both specified
+All parameters (`--mode`, `--verify`, `--skills`, `--convergence-dimensions`) can be **inferred by the LLM** from the task description and project context. Explicit flags are fallbacks/overrides — use them when provided, otherwise infer:
 
-Wizard mode activates when ANY critical parameter is missing:
-- No task description and no `--from-plan`
-- No `--verify` instruction
-- Or the user simply typed `/harness-start` with no arguments
+| Parameter | Inference method | Default fallback |
+|-----------|-----------------|------------------|
+| `--mode` | Tasks with 3+ independent files/modules → dual. Single file/targeted → single. | `single` |
+| `--verify` | Detect test runner from project (package.json, Makefile, pyproject.toml). Generate instruction: "run tests and verify [deliverables]". | `echo 'No verify command found'` |
+| `--skills` | Match task description against available skills (see Step 1D inference below). | none |
+| `--convergence-dimensions` | Analyze task for severity levels, quality tools mentioned. | `["P0 findings", "P1 findings"]` |
 
-If neither description nor `--from-plan` is provided and wizard mode wasn't obvious:
+**Mode detection — Quick vs Standard:**
+
+Quick mode activates when `--quick` is passed. It means:
+1. Infer all parameters from task description (no wizard)
+2. Create workspace files
+3. **Auto-chain into harness-dev** — immediately begin the dev loop without requiring user to manually invoke `/harness-dev`
+
+Standard mode (no `--quick`):
+1. Infer parameters from task description
+2. Present inferred config to user for brief confirmation
+3. Create workspace files
+4. Report ready, instruct user to `/clear` then `/harness-dev`
+
+If neither description nor `--from-plan` is provided:
 ```
 What task would you like the harness to execute? Describe it in one sentence.
 ```
 
-## Step 1: Wizard — Task Refinement (Wizard Mode Only)
+## Step 1: Task Analysis & Parameter Inference
 
-Skip this entire step in Quick mode — go directly to Step 2.
+**If `--quick` mode**: Classify the task using this table (do NOT read wizard-reference.md):
 
-In wizard mode, read `${CLAUDE_PLUGIN_ROOT}/skills/harness-start/wizard-reference.md` and follow Steps 1A–1E in order. Each step requires user confirmation before proceeding. The wizard covers: task classification & codebase scan, deliverable definition, verify instruction derivation, skill recommendation, and loop mode selection.
+| Category | Signals | Codebase read? |
+|---|---|---|
+| **Targeted change** | User names specific files/functions | Light: named files only |
+| **Feature/addition** | New functionality, no specific files | Medium: tech stack + relevant module |
+| **Cross-cutting refactor** | System-wide change | Full: full project scan |
+| **Non-code task** | Docs, config, planning | None |
+| **Ambiguous** | Can't tell | Ask the user |
+
+After classification, infer all parameters (mode, verify, skills, convergence-dimensions, loop-mode) from task description. Proceed directly to Step 2.
+
+**Standard mode**: Perform full task analysis. Read `${CLAUDE_PLUGIN_ROOT}/skills/harness-start/wizard-reference.md` and follow Steps 1A–1E. Then present the inferred config for user confirmation. See Mode Detection section above for what standard mode entails.
+
+```
+Based on your task description, here's the inferred configuration:
+
+Template: [template-name] (task type: [classification])
+Mode: [single|dual] (reason: [why])
+Verify: [inferred verification]
+Skills: [inferred skills or "none"]
+Convergence: [inferred dimensions]
+
+Proceed? Or adjust anything?
+```
+
+If the user adjusts parameters, update the inference and re-present before proceeding.
+
+Step 1C (verify derivation), 1D (skill recommendation), and 1E (loop mode) are now **inferred** — no separate wizard questions needed.
+
+> **Workflow template auto-selected**: `[template-name]` (based on task type: `[classification]`).
+> This template defines [brief description of steps and cycle behavior].
+> To override, restart with `--template <name>` where name is one of: review-fix-converge, implement-test-review-fix-converge, implement-verify.
 
 ## Step 1.5: Workspace Overwrite Check (STRUCTURAL GATE — MANDATORY)
 
@@ -120,21 +163,23 @@ This moves all workspace files (mission.md, playbook.md, eval-criteria.md, progr
 
 **DO NOT proceed to Step 5 until this gate passes.**
 
-## Step 2: Quality Preference Discovery
+## Step 2: Quality Profile Inference
 
-Ask the user (combine into a single prompt):
+Infer the quality profile from task complexity instead of asking the user:
 
-1. **Code review** -- "Need code review? If yes, how many rounds? (0 = no review, 1 = review once, 2+ = multiple review-fix cycles)"
-2. **TDD** -- "Need TDD (write tests before implementation)? (yes/no)"
-3. **Auto-fix on failure** -- "Should the system auto-fix and retry when verification fails? (yes/no)"
-4. **Human checkpoints** -- "Insert pause points for human review? (yes/no, default: no for fully autonomous execution)"
+| Task Complexity | Signals | review_rounds |
+|---|---|---|
+| **Simple** | Single file, < 50 LOC change | 0 |
+| **Medium** | 2-3 files, feature addition | 1 |
+| **Complex** | 4+ files, cross-module, security | 2 |
+| **Critical** | Security audit, data migration | 3 |
 
-Guidelines:
-- For simple/trivial tasks (e.g., "fix a typo", "update a config value"), skip this step and auto-set all answers to "no" -- inform the user.
-- For medium-to-complex tasks, ask all questions.
-- Parse answers into a quality profile: `{ review_rounds: int, tdd: bool, auto_fix: bool }`
+**Inference signals**: number of files mentioned, whether task says "review"/"audit"/"security", whether it spans multiple modules.
 
-If arguments provided all required info (mode, verify, etc.), use what was given and only ask the quality questions.
+For `--quick` mode: auto-apply inferred profile silently.
+For standard mode: present the inferred profile as part of the Step 1 confirmation block.
+
+Quality profile: `{ review_rounds: int }`
 
 ## Step 3: Determine Workspace Path
 
@@ -161,6 +206,8 @@ Derive a concise task name from the task description:
 - Convert to lowercase, hyphen-separated
 - Example: "Add user authentication with JWT" -> `user-authentication-jwt`
 
+**Validate**: Task name must match `^[a-z0-9][a-z0-9-]*[a-z0-9]$`. If it doesn't, simplify further.
+
 ## Step 5: Initialize State File
 
 **IMPORTANT: This step MUST run BEFORE writing workspace files (Step 6).** The init command auto-archives old workspace files when `--force` is needed, protecting them from being overwritten by the Write tool in the next step.
@@ -186,20 +233,24 @@ cycle_steps: [9, 11]  ← only the review tail cycles
 Run the state manager to create the JSON state file:
 
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py init <task-name> --mode <mode> --verify "<verify-instruction>" --skills "<skills>" --loop-mode <in-session|clean> [--cycle-steps <start,end>] [--force]
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py init "<task-name>" --mode <mode> --verify "<verify-instruction>" --skills "<skills>" --loop-mode <in-session|clean> [--cycle-steps <start,end>] [--force]
 ```
 
 Use `--force` whenever an existing workspace was detected in Step 1.5. Use `--loop-mode` from Step 1E. Use `--cycle-steps` as derived above. This creates `.claude/harness-state.json` and `.claude/harness/logs/execution_stream.log`.
 
 When `--force` is used and old workspace files exist, init auto-archives them to `.claude/harness/archive/` BEFORE overwriting the state file. This is a structural safety net that works even if the agent forgets to call `archive` separately.
 
-## Step 6: Write Template Files
+## Step 6: Generate Workspace Files
 
-Copy the templates from `${CLAUDE_PLUGIN_ROOT}/templates/` and fill them completely. Every `[placeholder]` must be replaced with concrete, task-specific content.
+**If a workflow template was selected** (auto-detected in Step 1 or via `--template`):
 
-**All files must be written to `.claude/harness/` directory** — the directory was already created by init in Step 5.
+Read `${CLAUDE_PLUGIN_ROOT}/skills/harness-start/templates-reference.md` for detailed file generation rules. Generate the 4 workspace files following those rules:
+1. **playbook.md** — from template `steps[]`
+2. **eval-criteria.md** — from template `eval_standards[]`
+3. **mission.md** — from task analysis + `mission_defaults`
+4. **progress.md** — standard initialization
 
-For detailed template file structure (mission.md, playbook.md, eval-criteria.md, progress.md), read `${CLAUDE_PLUGIN_ROOT}/skills/harness-start/templates-reference.md`. Key rules: every `[placeholder]` must be replaced; every deliverable must have a corresponding check; cross-module integration checks are mandatory for multi-phase tasks.
+**If no template was selected**: Use the dynamic generation process from templates-reference.md.
 
 ## Step 7: Verify Initialization
 
@@ -215,7 +266,9 @@ If any file is missing or contains `[placeholder]`, fix it before reporting read
 
 ## Step 8: Report Ready State
 
-Report to the user:
+### 8A: Workspace Summary
+
+Output the workspace summary (you may adapt wording but must include all fields):
 
 ```
 Harness workspace initialized.
@@ -233,17 +286,35 @@ Files created:
   .claude/harness/eval-criteria.md  -- <N> validation standards
   .claude/harness/progress.md       -- blank tracking log
   .claude/harness-state.json        -- state file
+```
 
-Ready to start execution.
+### 8B: MANDATORY FINAL OUTPUT
 
-**IMPORTANT: Start /harness-dev in a NEW session (or run /clear first).**
+**If `--quick` mode — auto-chain into harness-dev:**
 
-Why a new session:
-- This session's context is consumed by workspace initialization (plan parsing, wizard, file writes).
-- /harness-dev reads all state from disk files — it does not depend on conversation history.
+After the workspace summary, immediately begin harness-dev execution. Do NOT tell the user to run `/harness-dev` manually. Instead:
+
+1. Read the state file you just created
+2. Load `${CLAUDE_PLUGIN_ROOT}/skills/harness-dev/SKILL.md`
+3. Begin from Step 2 to verify state consistency, then proceed to Step 5 (loop execution).
+
+This is the entire point of `--quick` — zero-friction start-to-execution.
+
+**If standard mode — output this block VERBATIM:**
+
+```
+---
+
+## ⚠️ Next Steps (REQUIRED)
+
+**Run `/clear` first to free this session's context, then run `/openharness:harness-dev --mode <mode>`.**
+
+Why:
+- This session's context is consumed by workspace initialization (wizard, file writes).
+- `/harness-dev` reads all state from disk files — it does not depend on conversation history.
 - A clean session gives the full context window for actual development work.
 
-To begin: open a new Claude Code session in this project directory, then run /harness-dev --mode <single|dual>
+---
 ```
 
 ## Important Rules
@@ -253,5 +324,5 @@ To begin: open a new Claude Code session in this project directory, then run /ha
 - The verify instruction is a natural language AI instruction (not a shell command). It tells the eval-agent what to check.
 - state-manager.py init is Step 5, which MUST run BEFORE writing workspace files in Step 6.
 - When using `--from-plan`, faithfully reflect the plan's structure.
-- In wizard mode, each confirmation step must complete before moving to the next.
-- In quick mode, skip Steps 1A-1E entirely and use the provided arguments as-is.
+- In standard mode, confirm the inferred configuration with the user before proceeding.
+- In `--quick` mode, perform lightweight task classification (Step 1A) and infer all parameters automatically — no user interaction except for the task description itself.
