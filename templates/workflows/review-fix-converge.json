@@ -1,6 +1,6 @@
 {
   "name": "review-fix-converge",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "For code review, security audit, or architecture review tasks. Cycles review→fix→verify until convergence.",
   "triggers": {
     "task_types": ["review", "audit"],
@@ -11,7 +11,7 @@
       "name": "Review",
       "phase": null,
       "type": "review",
-      "what": "Perform cumulative-scope review of {{review_scope}}. Spawn harness-review-agent. Focus on: correctness, security, performance, maintainability. Write findings to .claude/harness/logs/review_report.json.",
+      "what": "Perform cumulative-scope review of the codebase. Spawn harness-review-agent. Focus on: correctness, security, performance, maintainability. Write findings to .claude/harness/logs/review_report.json.",
       "tools": [
         "Read → read source files in review scope",
         "Grep → search for patterns and anti-patterns",
@@ -36,7 +36,7 @@
       "name": "Fix",
       "phase": null,
       "type": "fix",
-      "what": "Apply fixes for findings from .claude/harness/logs/review_report.json. Prioritize P0 findings first, then P1. Each fix must reference the finding ID it resolves.",
+      "what": "Apply fixes for ALL findings from .claude/harness/logs/review_report.json. Before fixing, infer the convergence dimensions from the task description — identify which finding categories must reach zero (e.g., severity levels like P0/P1, quality checks like lint/type errors, or any criteria the user expects fully resolved). At minimum, P0 and P1 findings must be fixed. If the task mentions additional quality criteria, those are also mandatory. No finding may be deferred or skipped. Each fix must reference the finding ID it resolves.",
       "tools": [
         "Read → read files to fix",
         "Edit → apply targeted fixes",
@@ -44,12 +44,12 @@
       ],
       "completion_criteria": {
         "existence": [
-          "All P0 findings from review_report.json have corresponding code changes",
+          "All findings in the inferred convergence dimensions have corresponding code changes",
           "Each code change references the finding ID in commit or comment"
         ],
         "quality": [
           "Fixes address root cause, not symptoms",
-          "No new lint/type errors introduced",
+          "No new errors introduced",
           "Existing tests still pass after fixes"
         ]
       },
@@ -61,9 +61,9 @@
       "name": "Verify",
       "phase": null,
       "type": "verify",
-      "what": "Spawn harness-eval-agent to validate that all fixes are correct and no regressions introduced. Eval-agent checks against numbered standards in eval-criteria.md including convergence criterion.",
+      "what": "Spawn harness-eval-agent to validate that all fixes are correct and no regressions introduced. Determine the appropriate verification command from project context — check package.json scripts, Makefile targets, pyproject.toml, or other build system configs. If the task description specifies a verification method, prefer that. Eval-agent checks against numbered standards in eval-criteria.md including convergence criterion.",
       "tools": [
-        "Bash → run {{verify_command}}",
+        "Bash → run the verification command inferred from project context",
         "Read → verify file changes match fix descriptions"
       ],
       "completion_criteria": {
@@ -72,7 +72,7 @@
         ],
         "quality": [
           "All numbered standards pass",
-          "Convergence criterion passes (new P0 = 0 AND new P1 < previous cycle)",
+          "Convergence criterion passes: all inferred convergence dimensions = 0",
           "No regressions in previously passing tests"
         ]
       },
@@ -86,7 +86,9 @@
     "steps": [1, 3],
     "min_cycles": 2,
     "max_cycles": 5,
-    "convergence_metric": "new P0 findings = 0 AND new P1 findings < previous cycle's new P1 count"
+    "convergence_inference": "Analyze the task description to identify what quality dimensions must reach zero for convergence. Look for: severity levels mentioned (P0, P1, P2), quality tools referenced (lint, type-check, test runner), or phrases like 'all issues', 'clean build', 'zero warnings'. Default to P0 findings and P1 findings if the task description doesn't specify.",
+    "_comment_convergence": "This inference logic is shared with other cycle templates. Changes must be applied to all.",
+    "convergence_metric": "All inferred convergence dimensions = 0"
   },
   "eval_standards": [
     {
@@ -105,9 +107,9 @@
     },
     {
       "name": "Convergence",
-      "check": "Finding reduction is genuine, not due to shallow review",
+      "check": "All inferred convergence dimensions reach zero across review cycles",
       "method": "Compare review_report.json findings between current cycle and previous cycle. If cycle < min_cycles, automatically FAIL.",
-      "pass_condition": "cycle_iteration >= min_cycles AND new P0 findings = 0 AND new P1 findings < previous cycle's new P1 count AND review includes evidence section explaining what changed between cycles.",
+      "pass_condition": "cycle_iteration >= min_cycles AND all inferred convergence dimensions resolved to 0 AND review includes evidence section explaining what changed between cycles.",
       "on_fail": "Continue to next cycle. If cycle >= max_cycles, output convergence failure summary."
     },
     {
@@ -118,16 +120,19 @@
       "on_fail": "Append blind spot analysis before proceeding"
     },
     {
-      "name": "Fix Correctness",
-      "check": "All P0 findings from latest review have been addressed",
-      "method": "Cross-reference review_report.json P0 findings with actual code changes. Verify each P0 has a corresponding fix.",
-      "pass_condition": "Zero unresolved P0 findings. Each fix references the finding ID it resolves.",
-      "on_fail": "Return to Fix step to address remaining P0 findings"
+      "name": "Fix Completeness",
+      "check": "ALL findings across inferred convergence dimensions from latest review have been addressed",
+      "method": "Cross-reference review_report.json findings with actual code changes. For each inferred convergence dimension, verify zero unresolved findings. Each fix references the finding ID it resolves.",
+      "pass_condition": "Zero unresolved findings in every inferred convergence dimension. Each fix references the finding ID it resolves.",
+      "on_fail": "Return to Fix step to address remaining findings"
     }
   ],
   "mission_defaults": {
     "execution_mode": "single",
     "max_iterations": 0,
-    "verify_command": "echo 'Review-verify: check review_report.json and code changes'"
+    "fallback": {
+      "convergence_dimensions": ["P0 findings", "P1 findings"],
+      "verify_command": "echo 'No verify command found'"
+    }
   }
 }

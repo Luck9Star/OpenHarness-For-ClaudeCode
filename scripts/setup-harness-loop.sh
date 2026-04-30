@@ -64,6 +64,10 @@ while [[ $# -gt 0 ]]; do
         echo "Error: --max-iterations requires an argument (number)" >&2
         exit 1
       fi
+      if ! [[ "$2" =~ ^[0-9]+$ ]]; then
+          echo "Error: --max-iterations requires a non-negative integer, got: $2" >&2
+          exit 1
+      fi
       MAX_ITERATIONS="$2"
       shift 2
       ;;
@@ -139,6 +143,7 @@ echo "Initializing OpenHarness loop state..."
 # harness-dev on an already-initialized workspace (the common case).
 if [[ -z "$FORCE" && -f ".claude/harness-state.json" ]]; then
   FORCE="--force"
+  echo "Notice: Auto-applying --force (existing workspace state will be archived)" >&2
 fi
 
 # ---- Template processing ----
@@ -153,24 +158,38 @@ if [[ -n "$TEMPLATE" ]]; then
 
   # Extract cycle config from template if not already set by explicit flags
   if [[ -z "$CYCLE_STEPS" ]]; then
-    CYCLE_STEPS_FROM_TEMPLATE=$(python3 -c "
-import json
-t = json.load(open('$TEMPLATE_FILE'))
+    CYCLE_STEPS_FROM_TEMPLATE=$(python3 - "$TEMPLATE_FILE" <<'PYEOF' 2>/dev/null || true
+import json, sys
+with open(sys.argv[1]) as f:
+    t = json.load(f)
 cycle = t.get('cycle', {})
 if cycle.get('enabled') and cycle.get('steps'):
-    print(f\"{cycle['steps'][0]},{cycle['steps'][1]}\")
-" 2>/dev/null || true)
+    print(f"{cycle['steps'][0]},{cycle['steps'][1]}")
+PYEOF
+)
     if [[ -n "$CYCLE_STEPS_FROM_TEMPLATE" ]]; then
       CYCLE_STEPS="$CYCLE_STEPS_FROM_TEMPLATE"
     fi
   fi
 
   if [[ -z "$MIN_CYCLES" ]]; then
-    MIN_CYCLES=$(python3 -c "import json; print(json.load(open('$TEMPLATE_FILE')).get('cycle',{}).get('min_cycles',0))" 2>/dev/null || echo "0")
+    MIN_CYCLES=$(python3 - "$TEMPLATE_FILE" <<'PYEOF' 2>/dev/null || echo "0"
+import json, sys
+with open(sys.argv[1]) as f:
+    t = json.load(f)
+print(t.get('cycle', {}).get('min_cycles', 0))
+PYEOF
+)
   fi
 
   if [[ -z "$MAX_CYCLES" ]]; then
-    MAX_CYCLES=$(python3 -c "import json; print(json.load(open('$TEMPLATE_FILE')).get('cycle',{}).get('max_cycles',0))" 2>/dev/null || echo "0")
+    MAX_CYCLES=$(python3 - "$TEMPLATE_FILE" <<'PYEOF' 2>/dev/null || echo "0"
+import json, sys
+with open(sys.argv[1]) as f:
+    t = json.load(f)
+print(t.get('cycle', {}).get('max_cycles', 0))
+PYEOF
+)
   fi
 fi
 

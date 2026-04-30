@@ -11,8 +11,13 @@ Output: JSON with optional "decision": "block" and "reason" fields,
 
 import sys
 import json
+import os
 import re
 from pathlib import Path
+
+# Import shared utilities from harness_utils (scripts/ directory)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, "scripts"))
+from harness_utils import find_state_file
 
 # Files that are always write-protected (managed by scripts only)
 PROTECTED_FILES = {
@@ -23,20 +28,12 @@ PROTECTED_FILES = {
 WRITE_TOOLS = {"Write", "Edit", "MultiEdit"}
 
 
-# Project boundary markers for upward search
-BOUNDARY_MARKERS = {".git", "CLAUDE.md", ".claude-plugin"}
-
-
-def find_harness_root():
-    """Walk up from cwd to find a directory with .claude/harness-state.json."""
-    p = Path.cwd()
-    while p != p.parent:
-        if (p / ".claude" / "harness-state.json").exists():
-            return p
-        # Stop at project boundaries
-        if any((p / m).exists() for m in BOUNDARY_MARKERS):
-            return None
-        p = p.parent
+def _harness_root():
+    """Find harness root directory (parent of .claude/) using shared find_state_file."""
+    state_path = find_state_file()
+    if state_path:
+        # state_path is <root>/.claude/harness-state.json, root is parent of .claude/
+        return state_path.parent.parent
     return None
 
 
@@ -84,7 +81,7 @@ def path_matches_prohibited(target_path, prohibited_patterns):
 
         # Check for "files outside the project directory" type patterns
         if "outside" in pat or "external" in pat:
-            harness_root = find_harness_root()
+            harness_root = _harness_root()
             if harness_root:
                 try:
                     target.resolve().relative_to(harness_root.resolve())
@@ -147,7 +144,7 @@ def main():
         sys.exit(0)
 
     # Check if harness workspace is active
-    harness_root = find_harness_root()
+    harness_root = _harness_root()
     if not harness_root:
         # No active harness workspace — allow all writes
         sys.exit(0)

@@ -87,3 +87,5 @@ When spawned for a harness step, produce:
 3. **Index Recommendations** — missing indexes with rationale
 4. **Migration Plan** — reversible migration scripts
 5. **Performance Baseline** — expected improvement metrics
+
+**Agent-spawn router JSON format**: If dispatched via the OpenHarness agent-spawn router, output in JSON format matching the review_report.json schema: `{verdict, summary, findings: [{id, severity, file, description, suggestion}], density_check: {loc_reviewed, findings_count}}`

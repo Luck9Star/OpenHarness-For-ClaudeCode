@@ -31,51 +31,16 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+# Import shared utilities from harness_utils (same directory)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from harness_utils import find_state_file, read_state, write_state, _with_lock
+
 STATE_FILE = ".claude/harness-state.json"
 LOG_FILE = ".claude/harness/logs/execution_stream.log"
 
-MAX_STATE_SIZE = 2048
-
-
-# Project boundary markers: stop upward search when one is found
-BOUNDARY_MARKERS = [".git", "CLAUDE.md", ".claude-plugin"]
-
-
-def find_state_file():
-    """Find state file, searching up from cwd. Stops at project boundaries."""
-    p = Path.cwd()
-    while p != p.parent:
-        candidate = p / STATE_FILE
-        if candidate.exists():
-            return candidate
-        # Stop at project boundaries (avoids crossing into parent projects)
-        if any((p / m).exists() for m in BOUNDARY_MARKERS):
-            return None
-        p = p.parent
-    return None
-
-
-def read_state(path=None):
-    """Read JSON state file."""
-    target = path or find_state_file()
-    if not target:
-        return {}
-    try:
-        return json.loads(target.read_text())
-    except (json.JSONDecodeError, OSError):
-        return {}
-
-
-def write_state(state, path=None):
-    """Write JSON state file atomically (temp + rename)."""
-    target = path or find_state_file()
-    if not target:
-        print("No active harness workspace", file=sys.stderr)
-        sys.exit(1)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    tmp = target.with_suffix(".tmp")
-    tmp.write_text(json.dumps(state, indent=2) + "\n")
-    os.replace(tmp, target)
+SAFE_UPDATE_KEYS = {"status", "current_step", "execution_mode", "verify_instruction",
+                    "skills", "loop_mode", "task_name", "knowledge_index",
+                    "current_phase", "max_iterations"}
 
 
 def cmd_read(args):
@@ -87,19 +52,9 @@ def cmd_read(args):
     print(json.dumps(read_state(path), indent=2))
 
 
-def _auto_archive(state_path, existing_state):
-    """Auto-archive workspace files when force-overwriting via init.
-
-    This is a structural safety net: regardless of whether the agent
-    follows the SKILL.md protocol's Step 1.5, the workspace files
-    are archived before they can be overwritten.
-    """
+def _do_archive(state_path, archive_dir):
+    """Shared archive logic for both auto-archive and manual archive."""
     import shutil
-    task_name = existing_state.get("task_name", "untitled")
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    archive_dir = Path.cwd() / ".claude/harness/archive" / f"{task_name}-{timestamp}"
-    archive_dir.mkdir(parents=True, exist_ok=True)
-
     harness_dir = Path.cwd() / ".claude/harness"
     files_to_archive = ["mission.md", "playbook.md", "eval-criteria.md", "progress.md"]
 
@@ -119,6 +74,25 @@ def _auto_archive(state_path, existing_state):
         if state_path.exists():
             shutil.move(str(state_path), str(archive_dir / "harness-state.json"))
             archived.append("harness-state.json")
+
+    return archived
+
+
+def _auto_archive(state_path, existing_state):
+    """Auto-archive workspace files when force-overwriting via init.
+
+    This is a structural safety net: regardless of whether the agent
+    follows the SKILL.md protocol's Step 1.5, the workspace files
+    are archived before they can be overwritten.
+    """
+    task_name = existing_state.get("task_name", "untitled")
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    archive_dir = Path.cwd() / ".claude/harness/archive" / f"{task_name}-{timestamp}"
+    archive_dir.mkdir(parents=True, exist_ok=True)
+
+    archived = _do_archive(state_path, archive_dir)
+
+    if archived:
         print(json.dumps({
             "status": "auto-archived",
             "path": str(archive_dir),
@@ -229,6 +203,9 @@ def cmd_init(args):
             force = True
             i += 1
         else:
+            if args[i].startswith("-"):
+                print(f"Error: Unknown flag: {args[i]}", file=sys.stderr)
+                sys.exit(1)
             i += 1
 
     state_dir = Path.cwd() / ".claude"
@@ -320,14 +297,21 @@ def cmd_update(args):
     if len(args) < 2:
         print("Usage: state-manager.py update KEY VALUE", file=sys.stderr)
         sys.exit(1)
+    if args[0] not in SAFE_UPDATE_KEYS:
+        print(f"Error: Cannot update '{args[0]}' — not in allowlist: {sorted(SAFE_UPDATE_KEYS)}", file=sys.stderr)
+        sys.exit(1)
     path = find_state_file()
     if not path:
         print("No active harness workspace", file=sys.stderr)
         sys.exit(1)
-    state = read_state(path)
-    state[args[0]] = " ".join(args[1:])
-    state["last_execution_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    write_state(state, path)
+
+    def _do_update():
+        state = read_state(path)
+        state[args[0]] = " ".join(args[1:])
+        state["last_execution_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        write_state(state, path)
+
+    _with_lock(path, _do_update)
 
 
 def _log_path():
@@ -356,39 +340,43 @@ def cmd_step_advance(args):
     path = find_state_file()
     if not path:
         sys.exit(1)
-    state = read_state(path)
-    current = state.get("current_step", "Step 1")
-    match = re.search(r"Step (\d+)", current)
-    if match:
-        current_num = int(match.group(1))
-        next_num = current_num + 1
 
-        # Cycle logic: if cycle_steps is set (e.g., [1, 3]) and we've passed
-        # the cycle end, wrap back to cycle start instead of advancing past it
-        cycle_steps = state.get("cycle_steps", None)
-        if cycle_steps and isinstance(cycle_steps, list) and len(cycle_steps) == 2:
-            cycle_start, cycle_end = int(cycle_steps[0]), int(cycle_steps[1])
-            if current_num == cycle_end:
-                # Enforce max_cycles: prevent infinite looping
-                max_cycles = int(state.get("max_cycles", 0))
-                cycle_iter = int(state.get("cycle_iteration", 0)) + 1
-                if max_cycles > 0 and cycle_iter >= max_cycles:
-                    state["circuit_breaker"] = "tripped"
-                    state["status"] = "failed"
-                    write_state(state, path)
-                    print(f"Max cycles ({max_cycles}) reached. Circuit breaker tripped.")
-                    return
+    def _do_advance():
+        state = read_state(path)
+        current = state.get("current_step", "Step 1")
+        match = re.search(r"Step (\d+)", current)
+        if match:
+            current_num = int(match.group(1))
+            next_num = current_num + 1
 
-                next_num = cycle_start
-                # Track cycle iterations
-                state["cycle_iteration"] = cycle_iter
+            # Cycle logic: if cycle_steps is set (e.g., [1, 3]) and we've passed
+            # the cycle end, wrap back to cycle start instead of advancing past it
+            cycle_steps = state.get("cycle_steps", None)
+            if cycle_steps and isinstance(cycle_steps, list) and len(cycle_steps) == 2:
+                cycle_start, cycle_end = int(cycle_steps[0]), int(cycle_steps[1])
+                if current_num == cycle_end:
+                    # Enforce max_cycles: prevent infinite looping
+                    max_cycles = int(state.get("max_cycles", 0))
+                    cycle_iter = int(state.get("cycle_iteration", 0)) + 1
+                    if max_cycles > 0 and cycle_iter >= max_cycles:
+                        state["circuit_breaker"] = "tripped"
+                        state["status"] = "failed"
+                        write_state(state, path)
+                        print(f"Max cycles ({max_cycles}) reached. Circuit breaker tripped.")
+                        return
 
-        state["current_step"] = f"Step {next_num}"
-        write_state(state, path)
-        print(f"Advanced to Step {next_num}")
-    else:
-        print(f"Cannot parse step from: {current}", file=sys.stderr)
-        sys.exit(1)
+                    next_num = cycle_start
+                    # Track cycle iterations
+                    state["cycle_iteration"] = cycle_iter
+
+            state["current_step"] = f"Step {next_num}"
+            write_state(state, path)
+            print(f"Advanced to Step {next_num}")
+        else:
+            print(f"Cannot parse step from: {current}", file=sys.stderr)
+            sys.exit(1)
+
+    _with_lock(path, _do_advance)
 
 
 def cmd_fail(args):
@@ -396,14 +384,18 @@ def cmd_fail(args):
     path = find_state_file()
     if not path:
         sys.exit(1)
-    state = read_state(path)
-    failures = int(state.get("consecutive_failures", 0)) + 1
-    state["consecutive_failures"] = failures
-    if failures >= 3:
-        state["circuit_breaker"] = "tripped"
-    state["status"] = "failed"
-    write_state(state, path)
-    print(f"Failures: {failures}, Circuit breaker: {state.get('circuit_breaker', 'off')}")
+
+    def _do_fail():
+        state = read_state(path)
+        failures = int(state.get("consecutive_failures", 0)) + 1
+        state["consecutive_failures"] = failures
+        if failures >= 3:
+            state["circuit_breaker"] = "tripped"
+        state["status"] = "failed"
+        write_state(state, path)
+        print(f"Failures: {failures}, Circuit breaker: {state.get('circuit_breaker', 'off')}")
+
+    _with_lock(path, _do_fail)
 
 
 def cmd_reset_fail(args):
@@ -411,11 +403,15 @@ def cmd_reset_fail(args):
     path = find_state_file()
     if not path:
         sys.exit(1)
-    state = read_state(path)
-    state["consecutive_failures"] = 0
-    state["circuit_breaker"] = "off"
-    write_state(state, path)
-    print("Failures reset to 0")
+
+    def _do_reset():
+        state = read_state(path)
+        state["consecutive_failures"] = 0
+        state["circuit_breaker"] = "off"
+        write_state(state, path)
+        print("Failures reset to 0")
+
+    _with_lock(path, _do_reset)
 
 
 def cmd_step_status(args):
@@ -427,19 +423,23 @@ def cmd_step_status(args):
     if not path:
         print("No active harness workspace", file=sys.stderr)
         sys.exit(1)
-    state = read_state(path)
     step_name = args[0]
     status = args[1]
     valid_statuses = ("pending", "running", "completed", "failed")
     if status not in valid_statuses:
         print(f"Error: status must be one of {valid_statuses}, got '{status}'", file=sys.stderr)
         sys.exit(1)
-    if "step_statuses" not in state:
-        state["step_statuses"] = {}
-    state["step_statuses"][step_name] = status
-    state["last_execution_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    write_state(state, path)
-    print(f"{step_name}: {status}")
+
+    def _do_step_status():
+        state = read_state(path)
+        if "step_statuses" not in state:
+            state["step_statuses"] = {}
+        state["step_statuses"][step_name] = status
+        state["last_execution_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        write_state(state, path)
+        print(f"{step_name}: {status}")
+
+    _with_lock(path, _do_step_status)
 
 
 def cmd_phase_advance(args):
@@ -448,29 +448,33 @@ def cmd_phase_advance(args):
     if not path:
         print("No active harness workspace", file=sys.stderr)
         sys.exit(1)
-    state = read_state(path)
-    current = state.get("current_phase")
 
-    if current is None:
-        print("No active phase. Use step-advance for linear mode.", file=sys.stderr)
-        sys.exit(1)
+    def _do_phase_advance():
+        state = read_state(path)
+        current = state.get("current_phase")
 
-    current = int(current)
+        if current is None:
+            print("No active phase. Use step-advance for linear mode.", file=sys.stderr)
+            sys.exit(1)
 
-    step_statuses = state.get("step_statuses", {})
-    # Caller must track ALL phase steps before calling phase-advance.
-    # We verify no step is incomplete (running, pending, or failed).
-    non_completed = [s for s, st in step_statuses.items() if st != "completed"]
-    if non_completed:
-        statuses = ", ".join(f"{s}={step_statuses[s]}" for s in non_completed)
-        print(f"Cannot advance: incomplete step(s): {statuses}", file=sys.stderr)
-        sys.exit(1)
+        current = int(current)
 
-    state["current_phase"] = current + 1
-    state["step_statuses"] = {}
-    state["last_execution_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    write_state(state, path)
-    print(f"Advanced to Phase {current + 1}")
+        step_statuses = state.get("step_statuses", {})
+        # Caller must track ALL phase steps before calling phase-advance.
+        # We verify no step is incomplete (running, pending, or failed).
+        non_completed = [s for s, st in step_statuses.items() if st != "completed"]
+        if non_completed:
+            statuses = ", ".join(f"{s}={step_statuses[s]}" for s in non_completed)
+            print(f"Cannot advance: incomplete step(s): {statuses}", file=sys.stderr)
+            sys.exit(1)
+
+        state["current_phase"] = current + 1
+        state["step_statuses"] = {}
+        state["last_execution_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        write_state(state, path)
+        print(f"Advanced to Phase {current + 1}")
+
+    _with_lock(path, _do_phase_advance)
 
 
 def cmd_phase_status(args):
@@ -502,11 +506,15 @@ def cmd_trip_breaker(args):
     path = find_state_file()
     if not path:
         sys.exit(1)
-    state = read_state(path)
-    state["circuit_breaker"] = "tripped"
-    state["status"] = "failed"
-    write_state(state, path)
-    print("Circuit breaker TRIPPED")
+
+    def _do_trip():
+        state = read_state(path)
+        state["circuit_breaker"] = "tripped"
+        state["status"] = "failed"
+        write_state(state, path)
+        print("Circuit breaker TRIPPED")
+
+    _with_lock(path, _do_trip)
 
 
 def cmd_report(args):
@@ -531,7 +539,6 @@ def cmd_report(args):
 
 def cmd_archive(args):
     """Archive current workspace files before overwrite."""
-    import shutil
     state_path = find_state_file()
     if not state_path:
         print("No workspace to archive", file=sys.stderr)
@@ -543,32 +550,9 @@ def cmd_archive(args):
     archive_dir = Path.cwd() / ".claude/harness/archive" / f"{task_name}-{timestamp}"
     archive_dir.mkdir(parents=True, exist_ok=True)
 
-    harness_dir = Path.cwd() / ".claude/harness"
-    files_to_archive = ["mission.md", "playbook.md", "eval-criteria.md", "progress.md"]
-
-    archived = []
-    for f in files_to_archive:
-        src = harness_dir / f
-        if src.exists():
-            shutil.move(str(src), str(archive_dir / f))
-            archived.append(f)
-
-    # Archive logs directory — COPY (not move) for safety.
-    # The authoritative cleanup happens in cmd_init (is_reinit block).
-    # We use copy here so that if init fails after archive, the original
-    # workspace is still intact and recoverable.
-    logs_src = harness_dir / "logs"
-    if logs_src.exists() and any(logs_src.iterdir()):
-        shutil.copytree(str(logs_src), str(archive_dir / "logs"))
-        archived.append("logs/")
+    archived = _do_archive(state_path, archive_dir)
 
     if archived:
-        # Archive the state file itself — prevents zombie state where
-        # archive removed workspace files but state file still claims active task
-        if state_path.exists():
-            shutil.move(str(state_path), str(archive_dir / "harness-state.json"))
-            archived.append("harness-state.json")
-
         print(json.dumps({
             "status": "archived",
             "path": str(archive_dir),

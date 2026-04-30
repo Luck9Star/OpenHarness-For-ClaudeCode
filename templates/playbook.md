@@ -1,5 +1,7 @@
 # Playbook | Execution Steps
 
+> **NOTE**: Sections marked with [INSTRUCTION] are guidance for the LLM generating workspace playbook.md. They should NOT appear in the generated output file.
+
 > This file is the "operation manual" for the agent. Each step must be independently executable and verifiable.
 
 ## Execution Steps
@@ -48,7 +50,7 @@
 
 ---
 
-## Dependencies
+## [INSTRUCTION] Dependencies
 
 ### Linear (no Phase fields)
 ```
@@ -65,7 +67,7 @@ Phase 3: [Step 4, Step 5, Step 6] (parallel, waits for Phase 2)
 
 > Steps in the same Phase MUST be independent (not editing the same files).
 
-## Completion Criteria Guidelines
+## [INSTRUCTION] Completion Criteria Guidelines
 
 > When writing completion criteria for each step, follow these rules:
 > - Every step must have at least one **existence** criterion (does the output exist?)
@@ -74,7 +76,7 @@ Phase 3: [Step 4, Step 5, Step 6] (parallel, waits for Phase 2)
 > - Implementation steps should have a **coverage** criterion (tests exist and pass)
 > - Avoid bare existence checks like "file exists" — add depth requirements
 
-## Cycle Behavior (for review-fix loops)
+## [INSTRUCTION] Cycle Behavior (for review-fix loops)
 
 > When the task requires iterating review→fix→verify until convergence, add this section.
 

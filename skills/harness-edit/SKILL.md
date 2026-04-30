@@ -48,7 +48,9 @@ If no flags are provided, enter interactive mode:
 
 ## Workflow
 
-1. **Archive current workspace (STRUCTURAL GATE -- MANDATORY)** -- Before making any modifications, archive the current workspace:
+1. **Check workspace exists** -- verify `.claude/harness-state.json` and `.claude/harness/mission.md` exist. If not, tell the user to run `/harness-start` first.
+
+2. **Archive current workspace (STRUCTURAL GATE -- MANDATORY)** -- Before making any modifications, archive the current workspace:
 
    ```bash
    python3 ${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py archive
@@ -56,11 +58,9 @@ If no flags are provided, enter interactive mode:
 
    You MUST see `"status": "archived"` or `"status": "nothing_to_archive"` before proceeding. This protects against data loss if edits need to be rolled back.
 
-2. **Check workspace exists** -- verify `.claude/harness-state.json` and `.claude/harness/mission.md` exist. If not, tell the user to run `/harness-start` first.
+3. **Parse arguments** -- determine which modifications to apply.
 
-2. **Parse arguments** -- determine which modifications to apply.
-
-3. **Apply modifications**:
+4. **Apply modifications**:
 
    ### --verify
    Update the verify instruction in the state file:
@@ -88,12 +88,12 @@ If no flags are provided, enter interactive mode:
    - Implementation steps -> update `.claude/harness/playbook.md`
    - Verification criteria -> update `.claude/harness/eval-criteria.md`
 
-4. **Log the change**:
+5. **Log the change**:
    ```bash
    python3 ${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py log "Task modified: <summary of changes>"
    ```
 
-5. **Report changes**:
+6. **Report changes**:
    ```
    Harness task updated:
     - <list each change applied>

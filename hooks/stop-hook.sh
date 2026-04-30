@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # OpenHarness Stop Hook — thin wrapper
 # Delegates all logic to Python for JSON-safe processing
 

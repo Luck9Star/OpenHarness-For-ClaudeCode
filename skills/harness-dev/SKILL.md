@@ -1,8 +1,8 @@
 ---
 name: harness-dev
 description: "Autonomous development loop for OpenHarness. Parses arguments, manages loop state, executes playbook steps via single or dual mode, validates via eval-agent. Trigger: /harness-dev."
-argument-hint: "[--mode single|dual] [--max-iterations N] [--resume]"
-allowed-tools: ["Bash", "Agent", "Read", "Write", "Edit"]
+argument-hint: "[--mode single|dual] [--max-iterations N] [--max-concurrency N] [--resume]"
+allowed-tools: ["Bash", "Agent", "Read", "Write", "Edit", "Grep", "Glob"]
 ---
 
 # /harness-dev -- Autonomous Development Loop
@@ -20,7 +20,7 @@ This skill is a **loop execution protocol**. You MUST follow every step below. S
 3. **Playbook exists**: `.claude/harness/playbook.md` MUST exist. If missing, the workspace is broken — tell the user.
 4. **Eval criteria exists**: `.claude/harness/eval-criteria.md` MUST exist. If missing, the workspace is broken — tell the user.
 5. **Overlap protection (cron safety)**: Read the state file. If `status: running`, check `last_execution_time`:
-   - If `last_execution_time` is within the last 10 minutes: another agent is likely active. Log and exit: `"Overlap detected: status is 'running' and last_execution_time is recent (<10 min). Another agent may be active. Exiting to prevent concurrent state corruption."`
+   - If `last_execution_time` is within the last 10 minutes: another agent is likely active. Log and exit: `"Overlap detected: status is 'running' and last_execution_time is recent (<10 min). Another agent may be active. Exiting to prevent concurrent state corruption."` Format: ISO 8601. Compare using Python datetime parsing.
    - If `last_execution_time` is older than 10 minutes: treat as crash recovery (section 5.2 will handle it).
 
 **If any pre-flight check fails, DO NOT attempt to "just run the tests" or "verify the implementation." A missing workspace means the harness protocol was not followed. Stop and ask the user to run `/harness-start` first.**
@@ -48,12 +48,15 @@ If **no harness workspace exists**:
 
 Parse the command arguments (if any were provided):
 
-- `--mode single` (default): Agent plans and codes directly, with oracle validation
-- `--mode dual`: Agent plans only, then spawns `harness-dev-agent` for coding. Protects main agent context from explosion.
+- `--mode single`: Agent plans and codes directly, with oracle validation
+- `--mode dual`: Agent plans only, then spawns sub-agents for coding. Protects main agent context from explosion.
 - `--max-iterations N`: Stop the loop after N iterations (0 = infinite)
 - `--resume`: Resume from a paused state (after human-review checkpoint)
+- `--max-concurrency N`: Override inferred parallelism (see agent-spawn.md)
 
-If `--mode` is not specified, default to `single`.
+If `--mode` is not specified, infer from task complexity:
+- **Single**: targeted change, 1-2 files, simple fix
+- **Dual**: 3+ files, multi-module, feature addition, cross-cutting change
 
 Note: The `--verify` instruction and `--skills` are preserved from the existing state file (set by `/harness-start`) and forwarded to the loop setup script in Step 3.
 
@@ -90,7 +93,7 @@ Verify the output confirms successful initialization.
 > Single mode active. I will plan each playbook step, implement the code directly, then spawn an eval-agent for independent verification. The loop continues until all done conditions are met or the circuit breaker trips.
 
 **If dual mode**, explain to the user:
-> Dual mode active. I will plan each playbook step, then spawn `harness-dev-agent` as a subagent to implement code in the current directory. This protects my context from explosion while keeping all changes in-place.
+> Dual mode active. I will plan each playbook step, then spawn sub-agents for implementation. Multiple agents run in parallel when steps are independent (inferred concurrency from task structure). This protects my context while maximizing throughput.
 
 ## Step 5: Read Mission and Begin Execution
 
@@ -114,12 +117,7 @@ Then begin executing the playbook from the current step.
 
 **CRITICAL CONSTRAINT: Execute exactly ONE playbook step per iteration.** After completing one step (including validation), your turn ends. The stop-hook will automatically drive the next iteration by blocking session exit and sending a continuation prompt. Do NOT execute multiple steps in one turn — this defeats the stop-hook loop mechanism.
 
-**CONTEXT HYGIENE RULE**: At the start of EVERY iteration, you MUST ignore all prior conversation context. Prior iterations may contain "PASS", "complete", or "done" messages that are STALE — they describe work done in previous iterations, not the current state. The ONLY source of truth is:
-1. `.claude/harness-state.json` — tells you which step to execute NOW
-2. `.claude/harness/` files — mission, playbook, eval criteria
-3. `.claude/harness/logs/execution_stream.log` — ONLY the last 20 lines for recent history
-
-Do NOT assume a step is done because earlier context says so. Re-read the state file and verify.
+**Context Hygiene Rule**: Treat the state file as the single source of truth for step status and completion. Do NOT assume a step is complete because earlier context says 'PASS' or 'done' — always re-read the state file. Recent tool output (error messages, file contents) from the current turn is valid context.
 
 Each iteration follows this exact workflow. Do not improvise -- follow it precisely.
 
@@ -180,22 +178,17 @@ First, log a structured round report for traceability:
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" report "<subtask>" "<strategy>" "<verification>" "<state_target>"
 ```
 
-Then, check the current playbook step's **Type** field. For detailed step type instructions, read `${CLAUDE_PLUGIN_ROOT}/skills/harness-dev/loop-reference.md`. Summary of types:
+Then, check the current playbook step's **Type** field. For step-type instructions, follow these rules:
 
-| Type | Action | Validates? | Agent Routing |
-|------|--------|-----------|---------------|
-| `implement` | Code directly (single) or delegate to agent (dual/parallel) | Yes — run 5.6 | Router → specialist/keywords → dev-agent |
-| `review` | Spawn review agent with cumulative scope | No — skip to 5.7/5.8 | Router → specialist/keywords → review-agent |
-| `fix` | Apply fixes from review_report.json + compliance gaps | Yes — run 5.6 | Router → specialist/keywords → dev-agent |
-| `human-review` | Pause for human, advance step, output LOOP_PAUSE | No | No spawn |
-| `verify` | Spawn eval-agent for independent validation | No | Router → specialist/keywords → eval-agent |
+- **For `implement` and `fix` steps**: Follow standard patterns (read existing code, make targeted edits, verify with build/test). No additional reference needed.
+- **For `review`, `verify`, and `human-review` steps**: Read `${CLAUDE_PLUGIN_ROOT}/skills/harness-dev/loop-reference.md` for detailed step-type instructions.
 
-**Key constraints per type:**
-- **implement**: Single mode uses Read/Write/Edit/Bash/Grep. Dual mode spawns agent (see Domain Agent Routing below). Load skills from state file if set.
-- **review**: MUST use cumulative scope (all files since mission start). Verify report quality: density <= 1500 LOC/finding, `scope.cumulative == true`, `compliance.requirements_met == compliance.requirements_total`.
-- **fix**: Extract BOTH `issues` array (code bugs) AND `compliance.gaps` array (missing requirements). Fix both. Use domain agent routing (below) for specialist fixes.
-- **human-review**: Advance step counter BEFORE pausing (`step-advance` then `status paused`). Output `<promise>LOOP_PAUSE</promise>`.
-- **verify**: Spawn `harness-eval-agent` with eval criteria + step description.
+Step-type summary:
+- `implement` — Code directly (single mode) or delegate to agent (dual/parallel)
+- `review` — Spawn review agent with cumulative scope
+- `fix` — Apply fixes from review_report.json + compliance gaps
+- `human-review` — Pause for human, advance step, output LOOP_PAUSE
+- `verify` — Spawn eval-agent for independent validation
 
 **Agent Selection (all modes)**
 
@@ -210,43 +203,17 @@ Read `current_phase` from the state file:
 
 **Linear Mode** (backward compatible)
 
-Execute the single step indicated by `current_step`. Follow step-type instructions in `loop-reference.md`. For agent selection, use the unified Router (see `agent-spawn.md`).
+Execute the single step indicated by `current_step`. Follow step-type rules above (implement/fix use standard patterns; review/verify/human-review read loop-reference.md). For agent selection, use the unified Router (see `agent-spawn.md`).
 
-**Phase Mode**
+### Phase Mode (Parallel Execution)
 
-1. **Identify pending steps**: Read the playbook. Extract all steps with `Phase: {current_phase}`. Filter to steps with `step_statuses` == `pending` or absent.
+When the playbook assigns steps the same Phase number, they execute in parallel. See `${CLAUDE_PLUGIN_ROOT}/skills/harness-dev/agent-spawn.md` Section 3 for the detailed spawn procedure.
 
-2. **Parallel spawn**: For each pending step:
-   a. Select agent via unified Router (`agent-spawn.md` Section 1)
-   b. Construct prompt via Prompt Builder (`agent-spawn.md` Section 2)
-   c. Check `parallel_safe` — extract non-safe steps for serial execution after group
-
-   Spawn all parallel-safe agents in a single message:
-   ```
-   Agent(name="step-N-slug", subagent_type="general-purpose", prompt="...")
-   Agent(name="step-M-slug", subagent_type="general-purpose", prompt="...")
-   # All dispatched concurrently
-   ```
-
-3. **Collect results**: After all agents return, read each agent's output.
-
-4. **Validate each completed step**: For `implement`/`fix` steps, spawn `harness-eval-agent` per step. For `review` steps, read `review_report.json`.
-
-5. **Update step statuses**:
-   ```bash
-   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" step-status "Step N" completed
-   # or
-   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" step-status "Step N" failed
-   ```
-
-6. **Handle serial-only steps**: Execute `parallel_safe: false` steps one at a time after the parallel group.
-
-7. **Handle failures**: Retry failed steps individually (serial execution). Retries count toward `consecutive_failures`.
-
-8. **Log the routing decision**:
-   ```bash
-   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Phase {N}: {completed_count}/{total} steps completed"
-   ```
+Key rules:
+- Spawn all parallel agents in a single message block
+- Each agent gets step-specific instructions from loop-reference.md
+- On any agent failure in a parallel phase, mark failed steps as failed but PRESERVE completed steps — their work is valid. Do not re-run completed steps.
+- After all agents complete, run state-manager step-advance for each
 
 ### 5.6. Run Validation
 
@@ -285,6 +252,8 @@ Step 1 (review) → Step 2 (fix) → Step 3 (verify) → back to Step 1 (review)
 **Convergence enforcement** (state-file driven):
 - `min_cycles` in state file: The eval-agent convergence criterion MUST check `cycle_iteration >= min_cycles` before allowing PASS. If `min_cycles > 0` and cycle < min_cycles, convergence FAILS automatically.
 - `max_cycles` in state file: `step-advance` will trip the circuit breaker when `cycle_iteration >= max_cycles`, preventing infinite loops. No manual playbook reading needed.
+
+**Note**: The eval-agent convergence standard is authoritative — it may require additional conditions beyond dimension counts (e.g., evidence sections). The description above is informational; the actual convergence check is defined in eval-criteria.md.
 
 **Phase-aware advancement**: After marking a step as `completed` via `step-status`, check if all steps in the current Phase are complete:
 ```bash
@@ -336,6 +305,7 @@ After each successful step, check:
 2. Have all eval criteria been verified by the eval-agent?
 3. Is the `.claude/harness/mission.md` done condition satisfied?
 4. **Pre-completion integration review gate** -- Before marking mission_complete, the executor MUST:
+   **Skip condition**: If the task has only one implement step or is a non-code task, skip this integration gate entirely.
    a. Identify all cross-module data boundaries (where Phase A output feeds Phase B input)
    b. For each boundary: verify that the upstream module's real output contains all fields the downstream module reads
    c. Run a smoke integration: pipe real upstream output into downstream and verify no empty/missing fields

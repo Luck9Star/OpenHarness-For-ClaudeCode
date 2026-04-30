@@ -5,7 +5,6 @@ Run: python3 tests/test_state_manager.py
 """
 
 import json
-import os
 import sys
 import tempfile
 import unittest
@@ -33,10 +32,8 @@ class TestInitOverwriteProtection(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.TemporaryDirectory()
         self.cwd = self.tmpdir.name
-        os.chdir(self.cwd)
 
     def tearDown(self):
-        os.chdir(Path(__file__).parent.parent)
         self.tmpdir.cleanup()
 
     def _init_state(self, task_name="test-task", extra_args=None):
@@ -105,11 +102,9 @@ class TestStateMachineTransitions(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.TemporaryDirectory()
         self.cwd = self.tmpdir.name
-        os.chdir(self.cwd)
         run_state_manager("init", "test-task", cwd=self.cwd)
 
     def tearDown(self):
-        os.chdir(Path(__file__).parent.parent)
         self.tmpdir.cleanup()
 
     def _read_state(self):
@@ -210,10 +205,8 @@ class TestFindStateFileBoundary(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.TemporaryDirectory()
         self.cwd = self.tmpdir.name
-        os.chdir(self.cwd)
 
     def tearDown(self):
-        os.chdir(Path(__file__).parent.parent)
         self.tmpdir.cleanup()
 
     def test_boundary_prevents_cross_project_search(self):
@@ -230,10 +223,7 @@ class TestFindStateFileBoundary(unittest.TestCase):
         (proj_b / "src").mkdir(parents=True)
         (proj_b / ".git").mkdir()
 
-        # Run from project-b/src/
-        os.chdir(str(proj_b / "src"))
-
-        # Searching up from project-b/src/:
+        # Run from project-b/src/:
         #   project-b/src/.claude/harness-state.json -> no
         #   project-b/.git exists -> STOP
         # Should NOT find project-a's state
@@ -250,12 +240,114 @@ class TestFindStateFileBoundary(unittest.TestCase):
 
         subdir = Path(self.cwd) / "sub" / "deep"
         subdir.mkdir(parents=True)
-        os.chdir(str(subdir))
 
         rc, stdout, _ = run_state_manager("read", cwd=str(subdir))
         self.assertEqual(rc, 0)
         state = json.loads(stdout)
         self.assertEqual(state["task_name"], "test")
+
+
+class TestCmdArchive(unittest.TestCase):
+    """Test cmd_archive moves state to archive and removes original."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.cwd = self.tmpdir.name
+        run_state_manager("init", "archive-test", cwd=self.cwd)
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    def _read_state(self):
+        path = Path(self.cwd) / ".claude" / "harness-state.json"
+        return json.loads(path.read_text())
+
+    def test_archive_moves_state_file(self):
+        state_path = Path(self.cwd) / ".claude" / "harness-state.json"
+        self.assertTrue(state_path.exists(), "State file should exist after init")
+
+        rc, stdout, _ = run_state_manager("archive", cwd=self.cwd)
+        self.assertEqual(rc, 0, f"archive command failed: {stdout}")
+
+        # Original state file should be gone
+        self.assertFalse(state_path.exists(), "State file should be removed after archive")
+
+        # Archive directory should exist and contain the state file
+        archive_dir = Path(self.cwd) / ".claude/harness/archive"
+        self.assertTrue(archive_dir.exists(), "Archive directory should exist")
+        archived_files = list(archive_dir.rglob("harness-state.json"))
+        self.assertTrue(len(archived_files) > 0, "Archived state file should exist in archive dir")
+
+
+class TestCmdPhaseAdvance(unittest.TestCase):
+    """Test cmd_phase_advance increments phase counter."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.cwd = self.tmpdir.name
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    def _read_state(self):
+        path = Path(self.cwd) / ".claude" / "harness-state.json"
+        return json.loads(path.read_text())
+
+    def _cmd(self, *args):
+        return run_state_manager(*args, cwd=self.cwd)
+
+    def test_phase_advance_increments_counter(self):
+        # Initialize with a state that has current_phase set
+        rc, _, _ = self._cmd("init", "phase-test")
+        self.assertEqual(rc, 0)
+
+        # Manually set current_phase and mark all steps as completed
+        state_path = Path(self.cwd) / ".claude" / "harness-state.json"
+        state = json.loads(state_path.read_text())
+        state["current_phase"] = 1
+        state["step_statuses"] = {"Step 1": "completed", "Step 2": "completed"}
+        state_path.write_text(json.dumps(state, indent=2) + "\n")
+
+        rc, stdout, stderr = self._cmd("phase-advance")
+        self.assertEqual(rc, 0, f"phase-advance failed: {stderr}")
+        self.assertIn("Phase 2", stdout)
+
+        state = self._read_state()
+        self.assertEqual(state["current_phase"], 2)
+        # step_statuses should be reset after phase advance
+        self.assertEqual(state["step_statuses"], {})
+
+
+class TestCmdUpdateNegative(unittest.TestCase):
+    """Test that cmd_update rejects keys not in SAFE_UPDATE_KEYS."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.cwd = self.tmpdir.name
+        run_state_manager("init", "update-test", cwd=self.cwd)
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    def test_update_rejects_unsafe_key(self):
+        rc, stdout, stderr = run_state_manager(
+            "update", "consecutive_failures", "999", cwd=self.cwd
+        )
+        self.assertNotEqual(rc, 0, "Should reject update of unsafe key")
+        self.assertIn("not in allowlist", stderr)
+
+    def test_update_rejects_unknown_key(self):
+        rc, stdout, stderr = run_state_manager(
+            "update", "totally_made_up_field", "value", cwd=self.cwd
+        )
+        self.assertNotEqual(rc, 0, "Should reject update of unknown key")
+        self.assertIn("not in allowlist", stderr)
+
+    def test_update_accepts_safe_key(self):
+        rc, stdout, stderr = run_state_manager(
+            "update", "status", "running", cwd=self.cwd
+        )
+        self.assertEqual(rc, 0, f"Should accept safe key: {stderr}")
 
 
 if __name__ == "__main__":

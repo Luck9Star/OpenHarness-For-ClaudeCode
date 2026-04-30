@@ -106,3 +106,5 @@ When spawned for a harness step, produce:
 2. **Detailed Findings** — per-finding: location, severity, exploit path, remediation code
 3. **Architecture Recommendations** — systemic improvements beyond individual findings
 4. **Security Test Plan** — tests that should be added to prevent regression
+
+**Agent-spawn router JSON format**: If dispatched via the OpenHarness agent-spawn router, output in JSON format matching the review_report.json schema: `{verdict, summary, findings: [{id, severity, file, description, suggestion}], density_check: {loc_reviewed, findings_count}}`

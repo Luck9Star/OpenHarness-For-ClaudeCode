@@ -1,6 +1,6 @@
 {
   "name": "implement-verify",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "For quick tasks, prototypes, or non-code tasks. Linear implement→verify with no review cycle. Minimal overhead.",
   "triggers": {
     "task_types": ["quick", "non-code"],
@@ -11,7 +11,7 @@
       "name": "Implement",
       "phase": null,
       "type": "implement",
-      "what": "Execute {{objective}}. Produce the deliverables listed in mission.md. Follow project conventions.",
+      "what": "Execute the task objectives described in mission.md. Produce the deliverables listed in the Output Definition.",
       "tools": [
         "Read → read existing code for context",
         "Edit → write/modify files",
@@ -36,9 +36,9 @@
       "name": "Verify",
       "phase": null,
       "type": "verify",
-      "what": "Spawn harness-eval-agent for independent validation. Check deliverables exist, are non-trivial, and meet mission done definition.",
+      "what": "Spawn harness-eval-agent for independent validation. Check deliverables exist, are non-trivial, and meet mission done definition. Determine the appropriate verification command from project context (check package.json scripts, Makefile, pyproject.toml). If none found, use the fallback command.",
       "tools": [
-        "Bash → run {{verify_command}}",
+        "Bash → run the verification command inferred from project context",
         "Read → verify deliverable content"
       ],
       "completion_criteria": {
@@ -73,7 +73,7 @@
     {
       "name": "Functional Correctness",
       "check": "Output passes verification",
-      "method": "Run {{verify_command}} and check exit code.",
+      "method": "Run the verification command inferred from project context and check exit code.",
       "pass_condition": "Exit code 0 or all manual checks pass.",
       "on_fail": "Return to Implement step to fix issues"
     }
@@ -81,6 +81,6 @@
   "mission_defaults": {
     "execution_mode": "single",
     "max_iterations": 0,
-    "verify_command": "echo 'Specify verify command via --verify flag'"
+    "verify_command": "echo 'No verify command found'"
   }
 }

@@ -42,30 +42,31 @@ CORE_CONTENT=$(cat "$CORE_SKILL")
 # Read state summary as formatted JSON (compact for context budget)
 STATE_SUMMARY=$(jq -c '.' "$STATE_FILE" 2>/dev/null || cat "$STATE_FILE")
 
-# Escape for JSON embedding
-escape_for_json() {
-  local s="$1"
-  s="${s//\\/\\\\}"
-  s="${s//\"/\\\"}"
-  s="${s//$'\n'/\\n}"
-  s="${s//$'\r'/\\r}"
-  s="${s//$'\t'/\\t}"
-  printf '%s' "$s"
-}
+# Build context injection template
+CONTEXT_TEMPLATE='<EXTREMELY_IMPORTANT>
+You are in an active OpenHarness workspace.
 
-CORE_ESCAPED=$(escape_for_json "$CORE_CONTENT")
-STATE_ESCAPED=$(escape_for_json "$STATE_SUMMARY")
+**Below is the full content of the harness-core skill — your behavioral foundation for this session:**
 
-# Build context injection
-CONTEXT="<EXTREMELY_IMPORTANT>\nYou are in an active OpenHarness workspace.\n\n**Below is the full content of the harness-core skill — your behavioral foundation for this session:**\n\n${CORE_ESCAPED}\n\n**Current harness state:**\n\n${STATE_ESCAPED}\n\nRead .claude/harness/mission.md, .claude/harness/playbook.md, and .claude/harness/eval-criteria.md before taking any action.\n</EXTREMELY_IMPORTANT>"
+CORE_CONTENT_PLACEHOLDER
 
-# Output context injection — platform-aware
+**Current harness state:**
+
+STATE_SUMMARY_PLACEHOLDER
+
+Read .claude/harness/mission.md, .claude/harness/playbook.md, and .claude/harness/eval-criteria.md before taking any action.
+</EXTREMELY_IMPORTANT>'
+
+# Use jq for safe JSON construction — no manual escaping needed
+CONTEXT=$(printf '%s' "$CONTEXT_TEMPLATE" | jq -Rs . | jq -r --arg core "$CORE_CONTENT" --arg state "$STATE_SUMMARY" 'gsub("CORE_CONTENT_PLACEHOLDER"; $core) | gsub("STATE_SUMMARY_PLACEHOLDER"; $state)')
+
+# Output context injection — platform-aware, using jq for safe JSON construction
 if [ -n "${CURSOR_PLUGIN_ROOT:-}" ]; then
-  printf '{\n  "additional_context": "%s"\n}\n' "$CONTEXT"
+  jq -n --arg ctx "$CONTEXT" '{"additional_context": $ctx}'
 elif [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -z "${COPILOT_CLI:-}" ]; then
-  printf '{\n  "hookSpecificOutput": {\n    "hookEventName": "SessionStart",\n    "additionalContext": "%s"\n  }\n}\n' "$CONTEXT"
+  jq -n --arg ctx "$CONTEXT" '{"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": $ctx}}'
 else
-  printf '{\n  "additionalContext": "%s"\n}\n' "$CONTEXT"
+  jq -n --arg ctx "$CONTEXT" '{"additionalContext": $ctx}'
 fi
 
 exit 0

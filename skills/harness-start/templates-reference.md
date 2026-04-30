@@ -11,7 +11,7 @@ When a workflow template is selected (via `--template` flag or auto-detection fr
 
 ### Auto-Selection Rules
 
-The wizard Step 1A task classification maps to templates:
+Task classification from Step 1 maps to templates:
 
 | Classification | Template | Cycle? |
 |---|---|---|
@@ -22,15 +22,7 @@ The wizard Step 1A task classification maps to templates:
 
 ### Template Variables
 
-JSON step `what` fields contain `{{variable}}` placeholders filled from wizard output:
-
-| Variable | Source | Example |
-|----------|--------|---------|
-| `{{objective}}` | Step 1A expanded task description | "Implement user authentication" |
-| `{{target_files}}` | Step 1A codebase scan result | "src/auth/*.py" |
-| `{{deliverables}}` | Step 1B deliverable list | "auth module, login endpoint, tests" |
-| `{{verify_command}}` | Step 1C verify instruction | "pytest tests/" |
-| `{{review_scope}}` | Derived from target_files + deliverables | "src/auth/ and tests/auth/" |
+Parameter inference uses the table from SKILL.md Step 0.
 
 ### JSON → Markdown Generation
 
@@ -38,15 +30,15 @@ When generating workspace files from a template:
 
 1. **playbook.md**: Render each `steps[]` entry as a Step section with Type, What, Tools, Completion Criteria, Failure Handling. Add Cycle Behavior section if `cycle.enabled` is true.
 2. **eval-criteria.md**: Render each `eval_standards[]` entry as a numbered Standard. Include Validation Principles section. Add Review Task Standards if template has review steps.
-3. **mission.md**: Use wizard output + `mission_defaults` from template. Same structure as current template.
+3. **mission.md**: Use task analysis output + `mission_defaults` from template. Same structure as current template.
 4. **progress.md**: Standard initialization, same as current template.
 
 ## .claude/harness/mission.md
 
-Fill based on the task description (use the expanded version from Step 1A if wizard was used):
+Fill based on the task description (use the expanded version from Step 1A):
 - **Mission Name**: the task name from Step 4
-- **Mission Objective**: the user's task description (expanded version if wizard refined it)
-- **Done Definition**: derive from the verified deliverables in Step 1B — each deliverable maps to a done condition
+- **Mission Objective**: the user's task description (expanded version from task analysis)
+- **Done Definition**: derive from the deliverables — each deliverable maps to a done condition
 - **Boundaries**: set allowed/prohibited operations
 - **Execution Parameters**: set verify_instruction and execution_mode from user input
 - **Output Definition**: list the confirmed deliverables from Step 1B
@@ -61,6 +53,10 @@ Create a concrete step-by-step plan using the quality profile from Step 2.
 - `fix` -- apply fixes based on review feedback (reads `.claude/harness/logs/review_report.json`)
 - `verify` -- spawn harness-eval-agent for validation
 - `human-review` -- pause loop for human inspection and approval
+
+### Dynamic Playbook Generation (Fallback — only when no JSON template is selected)
+
+When no JSON workflow template matches the task, generate playbook dynamically using these rules:
 
 **Dynamic step generation rules based on quality profile**:
 
@@ -81,7 +77,7 @@ Create a concrete step-by-step plan using the quality profile from Step 2.
 - Steps should be ordered by dependency
 - Add a dependency diagram at the bottom
 - The final step should always be a `verify` step
-- When wizard was used, align steps with the deliverables from Step 1B
+- Align steps with the deliverables from Step 1B
 
 **Phase grouping for parallel execution** (when task has independent steps):
 
@@ -112,6 +108,7 @@ Phase 3: Step 6 (verify integration)
   Step 3: verify (eval-agent validation)
   ```
   Set `--cycle-steps 1,3 --min-cycles 2 --max-cycles 5` in the init command so the loop cycles: review -> fix -> verify -> review -> ... until all criteria pass. The `--min-cycles` and `--max-cycles` values are enforced by the state machine, not just the playbook prose.
+- **Note**: cycle_steps uses 1-based indexing matching playbook step numbers (not 0-based JSON array indices).
 - The done condition should be: "All review findings resolved, all tests pass, convergence criterion passes"
 - **MANDATORY**: Add a "Cycle Behavior" section to the playbook with: `min_cycles`, `max_cycles`, `convergence metric`, and `done condition`
 - **MANDATORY**: The eval-criteria MUST include a **numbered convergence check** (see eval-criteria section below). Without it, the loop exits after cycle 1 when all non-convergence criteria pass.
@@ -143,8 +140,7 @@ Required convergence standard format:
 - **Method**: Compare review_report.json findings between current cycle and previous cycle. If cycle < min_cycles (from state file), automatically FAIL.
 - **Pass Condition**:
   - Cycle iteration >= min_cycles (from state file `min_cycles` field)
-  - New P0 findings in this cycle = 0
-  - New P1 findings in this cycle < previous cycle's new P1 count (or <= 3 if first comparison)
+  - All inferred convergence dimensions resolved to 0 (dimensions inferred from task description — default: P0 findings and P1 findings)
   - Review includes evidence section explaining what changed between cycles
 - **On Fail**: Continue to next cycle. If cycle >= max_cycles (from state file), output convergence failure summary.
 ```

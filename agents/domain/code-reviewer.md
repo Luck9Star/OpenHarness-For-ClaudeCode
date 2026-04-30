@@ -85,3 +85,5 @@ When spawned for a harness review step, produce a structured report:
 3. **Warnings** — each with file:line, description, suggestion
 4. **Info Notes** — minor observations
 5. **Compliance Check** — verify implementation against requirements/spec
+
+**Agent-spawn router JSON format**: If dispatched via the OpenHarness agent-spawn router, output in JSON format matching the review_report.json schema: `{verdict, summary, findings: [{id, severity, file, description, suggestion}], density_check: {loc_reviewed, findings_count}}`

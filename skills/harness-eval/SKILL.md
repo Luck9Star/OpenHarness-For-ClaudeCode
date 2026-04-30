@@ -81,11 +81,11 @@ For review/audit tasks: verify that findings have adequate density. If a review 
 {"check": "finding_density", "passed": false, "evidence": "Only 2 findings for 10K LOC codebase (5000 LOC/finding). Threshold is 500 LOC/finding."}
 ```
 
-**Density floors** (per report type):
+**Density floors** (per eval-criteria.md — the authority):
 | Report type | Minimum density |
 |---|---|
-| Full codebase review | <= 1500 LOC/finding |
-| Iteration diff review | <= 800 LOC/finding |
+| Code review | >= 1 finding / 500 LOC |
+| Architecture review | >= 1 finding / module minimum, 3 recommended |
 | Security-focused review | <= 500 LOC/finding |
 
 If a report's density exceeds the threshold, FAIL the check. The only exception is if the `blind_spots` field contains exhaustive evidence of what was checked.

@@ -13,10 +13,7 @@ Implement code to meet the step's completion criteria.
 
 **Dual mode** (`execution_mode: dual`): Plan only. Delegate coding to an agent selected via the unified Agent Router (see `agent-spawn.md`).
 
-Agent selection follows the priority order from `agent-spawn.md` Section 1:
-1. Playbook step `specialist:` field → use that agent
-2. Auto-discovery: match step description against `agents/domain/*.md` `route_keywords`
-3. Fallback: `harness-dev-agent`
+Agent selection via unified Router (see `agent-spawn.md` Section 1).
 
 For parallel execution within a Phase, see `agent-spawn.md` Section 3 (Spawn Manager).
 
@@ -30,10 +27,7 @@ State commands:
 ALWAYS spawn a review agent. Agent selection via unified Router (see `agent-spawn.md`):
 
 1. Read the current step description from the playbook
-2. Select agent via Router:
-   - Step `specialist:` field → use that agent (e.g., security review → `security-engineer`)
-   - Auto-discovery: match step description against domain agent `route_keywords`
-   - Fallback: `harness-review-agent`
+2. Agent selection via unified Router (see `agent-spawn.md` Section 1)
 3. **Determine cumulative scope**: Before spawning the review agent, compute the full review scope:
    - Run `git diff --name-only <branch-point>..HEAD` to list ALL files modified since mission start
    - If git is unavailable, read the execution stream log to identify all files modified across iterations
@@ -68,10 +62,7 @@ Read the review report, then apply fixes.
 
 Then dispatch based on execution mode:
 - **Single mode**: Fix yourself using Read, Edit, Write, Bash
-- **Dual mode**: Select agent via unified Router (see `agent-spawn.md`). Route by:
-  1. Playbook `specialist:` field
-  2. Match review report issue categories against domain agent `route_keywords`
-  3. Fallback: `harness-dev-agent`
+- **Dual mode**: Agent selection via unified Router (see `agent-spawn.md` Section 1)
 
 After fixes:
 - Log: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Applied fixes for <N> issues + <M> compliance gaps"`
@@ -83,12 +74,14 @@ Pause for human inspection and approval.
 
 1. Generate a progress summary of completed steps
 2. Output the summary to the user
-3. **Advance the step counter BEFORE pausing** (P1 fix):
+3. **Advance the step counter and pause**:
    ```
    python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" step-advance
    python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" update status paused
    python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.py" log "Human-review checkpoint: paused for user inspection"
    ```
+
+   **Atomicity note**: These two commands MUST be called together. If the agent crashes between them, the next resume should check for `status=running` with `current_step` pointing to a non-implement step as a signal of interrupted human-review.
 4. Output `<promise>LOOP_PAUSE</promise>` to suspend the loop
 5. When the user resumes (via `/harness-dev --resume`), the next iteration continues from the step after this one
 
@@ -97,10 +90,7 @@ Pause for human inspection and approval.
 Spawn an evaluation agent for independent validation. Agent selection via unified Router (see `agent-spawn.md`):
 
 1. Read the current step description and eval criteria
-2. Select agent via Router:
-   - Step `specialist:` field → use that agent (e.g., API verification → `api-tester`)
-   - Auto-discovery: match step description against domain agent `route_keywords`
-   - Fallback: `harness-eval-agent`
+2. Agent selection via unified Router (see `agent-spawn.md` Section 1)
 3. Spawn the selected agent with eval criteria, step description, instructions to independently verify
 
 **ABSOLUTE RULE: eval-agent MUST be spawned. Self-assessment of verification or convergence is NEVER valid.**

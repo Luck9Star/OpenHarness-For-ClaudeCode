@@ -41,7 +41,7 @@
 
 | Parameter | Value |
 |---|---|
-| Verify Command | `[e.g., npm test]` |
+| Verify Instruction | `[e.g., npm test]` |
 | Execution Mode | `single` or `dual` |
 | Max Iterations | `0` (infinite) or `N` |
 

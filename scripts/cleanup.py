@@ -9,6 +9,7 @@ Usage:
 """
 
 import sys
+import os
 import gzip
 import shutil
 import json
@@ -79,7 +80,10 @@ def cleanup_progress(base_path):
     text = progress_path.read_text()
 
     # Find all run entries (### Run #NNN)
-    runs = list(re.finditer(r'(### Run #(\d+).*?)(?=### Run #|\Z)', text, re.DOTALL))
+    chunks = re.split(r'(?=### Run #)', text)
+    # Skip any header before the first "### Run #"
+    runs_text = chunks[1:] if len(chunks) > 1 else []
+    runs = [(m, m_obj.group(1)) for m in runs_text if (m_obj := re.search(r'#(\d+)', m))]
 
     if not runs:
         report("progress", "No run entries found — nothing to prune.")
@@ -93,32 +97,29 @@ def cleanup_progress(base_path):
     # Keep only the last PROGRESS_KEEP_RUNS entries
     runs_to_keep = runs[-PROGRESS_KEEP_RUNS:]
     runs_to_prune = runs[:-PROGRESS_KEEP_RUNS]
-    first_kept = runs_to_keep[0]
+    first_kept_num = runs_to_keep[0][1]
 
     # Build a summary of pruned entries
     pruned_runs = []
-    for match in runs_to_prune:
-        run_num = match.group(2)
-        # Extract result if available
-        result_match = re.search(r'\|\s*Result\s*\|\s*`?([^`|\n]+)`?\s*\|', match.group(1))
+    for chunk, run_num in runs_to_prune:
+        result_match = re.search(r'\|\s*Result\s*\|\s*`?([^`|\n]+)`?\s*\|', chunk)
         result = result_match.group(1).strip() if result_match else "unknown"
         pruned_runs.append(f"Run #{run_num}: {result}")
 
     # Rebuild the progress file
-    header_match = re.match(r'(.*?)(### Run #)', text, re.DOTALL)
-    header = header_match.group(1) if header_match else text.split("### Run #")[0]
+    header = chunks[0] if len(chunks) > 1 else ""
 
     # Add a summary of pruned runs
     success_count = sum(1 for r in pruned_runs if "success" in r.lower())
     fail_count = sum(1 for r in pruned_runs if "fail" in r.lower())
 
     summary = (
-        f"\n<!-- Pruned {len(pruned_runs)} runs older than Run #{first_kept.group(2)} "
+        f"\n<!-- Pruned {len(pruned_runs)} runs older than Run #{first_kept_num} "
         f"({success_count} successes, {fail_count} failures) -->\n\n"
     )
 
     # Get remaining body (from first kept run onwards)
-    remaining_body = text[first_kept.start():]
+    remaining_body = "".join(chunk for chunk, _ in runs_to_keep)
 
     new_text = header + summary + remaining_body
     progress_path.write_text(new_text)
@@ -152,9 +153,11 @@ def cleanup_state(base_path):
         original_count = len(knowledge_index)
         state["knowledge_index"] = knowledge_index[-3:]  # Keep last 3 entries
 
-        with open(state_path, "w") as f:
+        tmp = state_path.with_suffix(".tmp")
+        with open(tmp, "w") as f:
             json.dump(state, f, indent=2)
             f.write("\n")
+        os.replace(tmp, state_path)
 
         new_size = state_path.stat().st_size
         report("state", f"Trimmed knowledge index: {original_count} -> 3 entries ({size} -> {new_size} bytes)")
